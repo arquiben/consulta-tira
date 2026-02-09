@@ -1,0 +1,10 @@
+{
+  "name": "Consulfision",
+  "description": "Uma plataforma avançada de inteligência artificial para terapeutas holísticos, oferecendo análise de exames, protocolos personalizados de biomagnetismo, acupuntura sem agulha, ozonioterapia e diversas outras terapias integrativas.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "bluetooth",
+    "usb"
+  ]
+}

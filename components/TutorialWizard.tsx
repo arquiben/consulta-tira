@@ -26,7 +26,7 @@ const steps = [
   },
   {
     title: "3. Consulta por Voz",
-    description: "Em 'Consulta & Voz', você pode conversar com a IA. Descreva sintomas ou peça explicações sobre doenças complexas. A IA transcreve e responde em tempo real.",
+    description: "Em 'Consulta & Voz', você pode conversar com a IA. Descreva patologias ou peça explicações sobre doenças complexas. A IA transcreve e responde em tempo real.",
     icon: "🎙️",
     color: "bg-purple-600"
   },

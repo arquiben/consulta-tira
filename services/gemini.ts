@@ -1,36 +1,60 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
-import { PatientData } from "../types";
+import { GoogleGenAI, Type, Modality } from "@google/genai";
+import { PatientData, AnalysisReport } from "../types";
 import { OFFICIAL_NSO_LIBRARY } from "./libraryNSO";
 
-const API_KEY = process.env.API_KEY || '';
+export interface AnatomicalExplanation {
+  narration: string;
+  points: {
+    x: number;
+    y: number;
+    label: string;
+    description: string;
+  }[];
+}
 
-export const getGeminiAI = () => new GoogleGenAI({ apiKey: API_KEY });
+export const getGeminiAI = () => {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is not defined in the environment.");
+  }
+  return new GoogleGenAI({ apiKey });
+};
+
+async function withRetry<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
+  try {
+    return await fn();
+  } catch (error: any) {
+    const isNetworkError = error.message?.toLowerCase().includes('network') || 
+                           error.message?.toLowerCase().includes('fetch') ||
+                           error.message?.toLowerCase().includes('timeout');
+    
+    if (retries > 0 && isNetworkError) {
+      console.warn(`Network error detected. Retrying... (${retries} attempts left)`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return withRetry(fn, retries - 1, delay * 2);
+    }
+    throw error;
+  }
+}
 
 const SYSTEM_PROMPT = `Você é o Consulfision 2026, o NÚCLEO DE INTELIGÊNCIA CLÍNICA INTEGRADA.
-Sua especialidade absoluta é a análise de patologias para gerar PROTOCOLOS DE BIOMAGNETISMO, ACUPUNTURA INTEGRATIVA, FITOTERAPIA e ORIENTAÇÃO FARMACOLÓGICA.
+Sua especialidade absoluta é a análise de patologias para gerar PROTOCOLOS DE BIOMAGNETISMO, ACUPUNTURA INTEGRATIVA, FITOTERAPIA, ORIENTAÇÃO FARMACOLÓGICA (RECEITA) e SUPORTE NUTRICIONAL AVANÇADO.
 
 DIRETRIZES DE ANÁLISE:
 1. BIOMAGNETISMO: Identifique os pares biomagnéticos para neutralizar patógenos.
 2. ACUPUNTURA SEM AGULHA: Sugira pontos meridianos para equilíbrio energético.
-3. FITOTERAPIA: Recomende plantas medicinais (fitoterápicos) adequados para o quadro clínico, respeitando contraindicações.
-4. FARMACOLOGIA: Liste fármacos que podem ser relevantes para a patologia analisada, sugerindo consulta médica se necessário.
-5. HIDROTERAPIA NSO: Sempre verifique a hidratação e recomende o protocolo de 30 dias se necessário.
+3. FITOTERAPIA: Recomende plantas medicinais (fitoterápicos) adequados para o quadro clínico, fornecendo uma receita clara.
+4. FARMACOLOGIA: Liste fármacos que podem ser relevantes para a patologia analisada, fornecendo uma prescrição (receita) detalhada e sugerindo consulta médica se necessário.
+5. NUTRIÇÃO & SUPLEMENTAÇÃO: Para QUALQUER patologia (incluindo Câncer, AVC, Próstata), forneça orientações de DIETA, MINERAIS e VITAMINAS. 
+   - Inclua foco em ONCOLOGIA HOLÍSTICA quando aplicável.
+   - Inclua DIETA ENERGÉTICA para restaurar a vitalidade do paciente.
+6. HIDROTERAPIA NSO: Sempre verifique a hidratação e recomende o protocolo de 30 dias se necessário.
 
-ESTRUTURA DA RESPOSTA (JSON):
-- summary: Parecer clínico integrado detalhado.
-- findings: Lista de desequilíbrios detectados.
-- criticalAlert: Booleano para casos graves.
-- suggestedProtocols: Array contendo:
-    * therapy: "Biomagnetismo", "Acupuntura sem Agulha", "Fitoterapia", "Farmacologia" ou "Hidroterapia NSO".
-    * title: Nome específico do protocolo.
-    * instructions: Como aplicar ou utilizar.
-    * suggestedPhytotherapeutics: Lista de ervas ou compostos naturais sugeridos.
-    * suggestedPharmaceuticals: Lista de medicamentos alopáticos sugeridos.
-    * steps: Array de { order, action, detail }.
-    * frequencies: Frequências de apoio (Hz).
-    * sessions: Número de sessões.
-    * revaluationDays: Prazo para reavaliação.
+IMPORTANTE: 
+- Sua resposta deve ser estritamente em JSON válido, seguindo o esquema fornecido.
+- Evite termos genéricos como "objeto" ou "coisa". Seja específico sobre a patologia ou doença analisada.
+- Sempre forneça uma "Receita" clara nos protocolos sugeridos.
 
 BIBLIOTECA DE REFERÊNCIA: ${JSON.stringify(OFFICIAL_NSO_LIBRARY)}`;
 
@@ -48,9 +72,140 @@ SOLICITAÇÃO DE ANÁLISE:
 ${basePrompt}`;
 }
 
-export async function generateTherapyReport(prompt: string, imageBase64?: string, patient?: PatientData | null) {
-  const ai = new GoogleGenAI({ apiKey: API_KEY });
+export async function generateAnatomicalImage(prompt: string): Promise<string> {
+  const ai = getGeminiAI();
+  const model = "gemini-2.5-flash-image";
+
+  const response = await withRetry(() => ai.models.generateContent({
+    model,
+    contents: {
+      parts: [
+        {
+          text: `Gere uma imagem anatômica realista e detalhada em 3D de alta resolução. Foco: ${prompt}. Estilo: Atlas clínico profissional, iluminação de estúdio, fundo neutro, sem textos ou rótulos na imagem.`,
+        },
+      ],
+    },
+    config: {
+      imageConfig: {
+        aspectRatio: "1:1",
+      },
+    },
+  }));
+
+  for (const part of response.candidates[0].content.parts) {
+    if (part.inlineData) {
+      return `data:image/png;base64,${part.inlineData.data}`;
+    }
+  }
+  throw new Error("Nenhuma imagem foi gerada pela IA.");
+}
+
+export async function generateAnatomicalExplanation(prompt: string, patient?: PatientData | null): Promise<AnatomicalExplanation> {
+  const ai = getGeminiAI();
   const model = "gemini-3-flash-preview";
+
+  const context = patient ? `Paciente: ${patient.name}, Queixas: ${patient.complaints}, Histórico: ${patient.history}` : 'Contexto geral';
+
+  const response = await withRetry(() => ai.models.generateContent({
+    model,
+    contents: { 
+      parts: [{
+        text: `Analise a anatomia relacionada a: "${prompt}". 
+        Contexto Clínico: ${context}.
+        Forneça uma narração explicativa profissional e detalhada. 
+        IMPORTANTE: A narração DEVE explicar cada um dos pontos identificados abaixo (1, 2, 3...), descrevendo o que significam naquele local, suas funções fisiológicas e possíveis alterações patológicas relacionadas.
+        A narração deve ser fluida e educativa para o paciente.
+        Identifique 3 a 5 pontos anatômicos específicos.
+        Os pontos devem ter coordenadas x e y de 0 a 100 representando a posição na imagem.` 
+      }]
+    },
+    config: {
+      systemInstruction: "Você é um especialista em anatomia clínica e patologia. Sua missão é explicar visualizações anatômicas de forma clara e profunda, relacionando a estrutura com a função e a doença. Responda estritamente em JSON.",
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          narration: { type: Type.STRING },
+          points: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                x: { type: Type.NUMBER },
+                y: { type: Type.NUMBER },
+                label: { type: Type.STRING },
+                description: { type: Type.STRING }
+              },
+              required: ["x", "y", "label"]
+            }
+          }
+        },
+        required: ["narration", "points"]
+      }
+    }
+  }));
+
+  return JSON.parse(response.text);
+}
+
+export async function generateTTS(text: string): Promise<string> {
+  const ai = getGeminiAI();
+  const model = "gemini-2.5-flash-preview-tts";
+
+  const response = await withRetry(() => ai.models.generateContent({
+    model,
+    contents: [{ parts: [{ text: `Narração clínica: ${text}` }] }],
+    config: {
+      responseModalities: [Modality.AUDIO],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: { voiceName: 'Kore' },
+        },
+      },
+    },
+  }));
+
+  const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+  if (base64Audio) {
+    return `data:audio/wav;base64,${base64Audio}`;
+  }
+  throw new Error("Falha ao gerar áudio TTS.");
+}
+
+export async function generateFollowUpQuestions(conversationHistory: string, patient?: PatientData | null): Promise<string> {
+  const ai = getGeminiAI();
+  const model = "gemini-3.1-pro-preview";
+
+  const contextStr = patient 
+    ? `PACIENTE: ${patient.name}, Idade: ${patient.age}, Queixas: ${patient.complaints}, Histórico: ${patient.history}` 
+    : 'Paciente não identificado';
+
+  const prompt = `Com base no histórico do paciente e na conversa clínica abaixo, elabore 3 a 5 perguntas de acompanhamento altamente específicas e clínicas para aprofundar a investigação dos sintomas. Seja empático, mas técnico.
+
+${contextStr}
+
+HISTÓRICO DA CONVERSA:
+${conversationHistory}
+
+Responda apenas com as perguntas, formatadas em uma lista clara.`;
+
+  const response = await withRetry(() => ai.models.generateContent({
+    model,
+    contents: { 
+      parts: [{ text: prompt }] 
+    },
+    config: {
+      systemInstruction: "Você é o Consulfision, um especialista em diagnóstico clínico integrativo. Sua missão é fazer perguntas inteligentes que ajudem a diferenciar patologias e entender a causa raiz dos sintomas relatados.",
+      temperature: 0.7,
+    }
+  }));
+
+  return response.text || "Não foi possível gerar perguntas de acompanhamento no momento.";
+}
+
+export async function generateTherapyReport(prompt: string, imageBase64?: string, patient?: PatientData | null): Promise<AnalysisReport> {
+  const ai = getGeminiAI();
+  const model = "gemini-3.1-pro-preview";
 
   const parts: any[] = [{ text: enrichPromptWithPatient(prompt, patient) }];
   if (imageBase64) {
@@ -62,12 +217,12 @@ export async function generateTherapyReport(prompt: string, imageBase64?: string
     });
   }
 
-  const response = await ai.models.generateContent({
+  const response = await withRetry(() => ai.models.generateContent({
     model,
     contents: { parts },
     config: {
       systemInstruction: SYSTEM_PROMPT,
-      temperature: 0.7,
+      temperature: 0.2,
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
@@ -75,7 +230,8 @@ export async function generateTherapyReport(prompt: string, imageBase64?: string
           summary: { type: Type.STRING },
           findings: { type: Type.ARRAY, items: { type: Type.STRING } },
           criticalAlert: { type: Type.BOOLEAN },
-          emergencyLevel: { type: Type.STRING },
+          emergencyLevel: { type: Type.STRING, description: "low, medium, high, critical" },
+          suggestedExams: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Lista de exames laboratoriais ou de imagem necessários" },
           suggestedProtocols: {
             type: Type.ARRAY,
             items: {
@@ -86,6 +242,8 @@ export async function generateTherapyReport(prompt: string, imageBase64?: string
                 instructions: { type: Type.STRING },
                 suggestedPhytotherapeutics: { type: Type.ARRAY, items: { type: Type.STRING } },
                 suggestedPharmaceuticals: { type: Type.ARRAY, items: { type: Type.STRING } },
+                suggestedSupplements: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Vitaminas e Minerais recomendados" },
+                dietaryPlan: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Orientações de dieta (Oncológica, Energética, etc)" },
                 steps: {
                   type: Type.ARRAY,
                   items: {
@@ -104,10 +262,23 @@ export async function generateTherapyReport(prompt: string, imageBase64?: string
               required: ["therapy", "instructions", "title"]
             }
           }
-        }
+        },
+        required: ["summary", "suggestedProtocols", "emergencyLevel"]
       }
     }
-  });
+  }));
 
-  return JSON.parse(response.text);
+  try {
+    const text = response.text;
+    // Limpa possíveis blocos de código markdown se houver
+    const cleanedJson = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    const result = JSON.parse(cleanedJson);
+    return {
+        ...result,
+        date: new Date().toISOString()
+    };
+  } catch (e) {
+    console.error("Erro ao processar JSON da IA:", e);
+    throw new Error("Falha ao processar relatório clínico.");
+  }
 }

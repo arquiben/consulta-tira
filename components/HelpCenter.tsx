@@ -71,7 +71,7 @@ export const HelpCenter: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
                   <div className="bg-slate-50 p-6 rounded-3xl">
                     <h4 className="font-black text-emerald-600 uppercase text-xs mb-2">Consulta por Voz</h4>
-                    <p className="text-sm">Fale com a IA sobre sintomas para receber diagnósticos integrativos em tempo real.</p>
+                    <p className="text-sm">Fale com a IA sobre patologias ou doenças para receber diagnósticos integrativos em tempo real.</p>
                   </div>
                   <div className="bg-slate-50 p-6 rounded-3xl">
                     <h4 className="font-black text-blue-600 uppercase text-xs mb-2">Análise de Exames</h4>

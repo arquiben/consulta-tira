@@ -121,6 +121,8 @@ export interface Protocol {
   prescriptionItems?: string[];
   suggestedPharmaceuticals?: string[];
   suggestedPhytotherapeutics?: string[];
+  suggestedSupplements?: string[];
+  dietaryPlan?: string[];
   contraindications?: string[];
   criticalAlert?: boolean;
   emergencyLevel?: 'low' | 'medium' | 'high' | 'critical';
@@ -137,6 +139,34 @@ export interface AnalysisReport {
   disclaimer: string;
   criticalAlert: boolean;
   emergencyLevel: 'low' | 'medium' | 'high' | 'critical';
+}
+
+export interface FrequencyProtocol {
+  id: string;
+  name: string;
+  frequency: number;
+  waveType: 'sine' | 'square' | 'sawtooth' | 'triangle';
+  description: string;
+  createdAt: string;
+}
+
+export interface IridologyZone {
+  id: number;
+  name: string;
+  status: 'normal' | 'altered';
+  observation?: string;
+  severity?: 'light' | 'moderate' | 'intense';
+}
+
+export interface IridologyAnalysis {
+  id: string;
+  patientId: string;
+  date: string;
+  imageUrl: string;
+  zones: IridologyZone[];
+  interpretation: string;
+  suggestedProtocol: Protocol;
+  pdfUrl?: string;
 }
 
 export interface Message {

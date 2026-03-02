@@ -1,6 +1,8 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Sidebar } from './components/Sidebar';
+import { BottomNav } from './components/BottomNav';
 import { Dashboard } from './components/Dashboard';
 import { Consultation } from './components/Consultation';
 import { ExamAnalysis } from './components/ExamAnalysis';
@@ -11,6 +13,10 @@ import { HelpCenter } from './components/HelpCenter';
 import { ActivationScreen } from './components/ActivationScreen';
 import { LoginScreen } from './components/LoginScreen';
 import { AnatomicalMapper } from './components/AnatomicalMapper';
+import { AnatomicalGenerator } from './components/AnatomicalGenerator';
+import { MedicalExamRequest } from './components/MedicalExamRequest';
+import { FrequencyGenerator } from './components/FrequencyGenerator';
+import { IridologyModule } from './components/IridologyModule';
 import { WelcomeIntro } from './components/WelcomeIntro';
 import { Library } from './components/Library';
 import { ClinicalHistory } from './components/ClinicalHistory';
@@ -19,224 +25,118 @@ import { TutorialWizard } from './components/TutorialWizard';
 import { PatientData, AnalysisReport, ClinicSettings, UserRole, Protocol, LicenseType } from './types';
 import { translations } from './translations';
 
-type View = 'dashboard' | 'patient' | 'consultation' | 'exams' | 'mapping' | 'protocols' | 'library' | 'history' | 'settings' | 'help' | 'recycle';
+import { useStore, View } from './store/useStore';
 
 const App: React.FC = () => {
-  const [currentView, setCurrentView] = useState<View>('dashboard');
-  const [patientData, setPatientData] = useState<PatientData | null>(null);
-  const [allPatients, setAllPatients] = useState<PatientData[]>([]);
-  const [deletedPatients, setDeletedPatients] = useState<PatientData[]>([]);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [currentUserRole, setCurrentUserRole] = useState<UserRole | null>(null);
-  const [isUpdating, setIsUpdating] = useState(true);
-  const [showIntro, setShowIntro] = useState(false);
-  const [showTutorial, setShowTutorial] = useState(false);
-  const [clinicSettings, setClinicSettings] = useState<ClinicSettings>(() => {
-    const saved = localStorage.getItem('consulfision_settings');
-    if (saved) return JSON.parse(saved);
-    return {
-      therapistName: 'Dr. Terapêutico',
-      clinicName: 'Centro Consulfision',
-      isActivated: false,
-      licenseType: LicenseType.FREE,
-      activationDate: new Date().toISOString(),
-      expiryDate: new Date(Date.now() + 5 * 24 * 3600 * 1000).toISOString(),
-      language: 'pt',
-      accessPassword: ''
-    };
-  });
-  const [lastExamAnalysis, setLastExamAnalysis] = useState<AnalysisReport | null>(null);
-  const [customProtocols, setCustomProtocols] = useState<Protocol[]>([]);
-
-  const t = translations[clinicSettings.language || 'pt'] || translations.pt;
-  const isCreator = clinicSettings.licenseType === LicenseType.CREATOR;
-
-  // Lógica de expiração
-  const isExpired = clinicSettings.expiryDate ? new Date(clinicSettings.expiryDate) < new Date() : false;
+  const {
+    currentView, setView,
+    isAuthenticated, setAuthenticated,
+    currentUserRole,
+    showIntro, setShowIntro,
+    showTutorial, setShowTutorial,
+    clinicSettings, setClinicSettings,
+    patientData, setPatientData,
+    allPatients, savePatient,
+    deletedPatients,
+    lastExamAnalysis, setLastExamAnalysis,
+    customProtocols, setCustomProtocols,
+    handleReportGenerated,
+    handleAnalyzeNow,
+    selectReport,
+    clearRecommendations,
+    recommendedFrequencies,
+    logout,
+    syncFromSupabase
+  } = useStore();
 
   useEffect(() => {
-    const savedPatients = localStorage.getItem('consulfision_patients');
-    if (savedPatients) setAllPatients(JSON.parse(savedPatients));
-
-    const savedDeleted = localStorage.getItem('consulfision_deleted_patients');
-    if (savedDeleted) setDeletedPatients(JSON.parse(savedDeleted));
-
-    const savedCustom = localStorage.getItem('consulfision_custom_protocols');
-    if (savedCustom) setCustomProtocols(JSON.parse(savedCustom));
-
-    const introSeen = localStorage.getItem('consulfision_intro_seen');
-    if (!introSeen) setShowIntro(true);
-
-    const timer = setTimeout(() => setIsUpdating(false), 2500);
-    return () => clearTimeout(timer);
+    syncFromSupabase();
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem('consulfision_patients', JSON.stringify(allPatients));
-  }, [allPatients]);
-
-  useEffect(() => {
-    localStorage.setItem('consulfision_deleted_patients', JSON.stringify(deletedPatients));
-  }, [deletedPatients]);
-
-  useEffect(() => {
-    localStorage.setItem('consulfision_settings', JSON.stringify(clinicSettings));
-  }, [clinicSettings]);
-
-  useEffect(() => {
-    localStorage.setItem('consulfision_custom_protocols', JSON.stringify(customProtocols));
-  }, [customProtocols]);
 
   const handleLogin = (pass: string, role: UserRole) => {
     if (role === UserRole.PATIENT) {
-      setCurrentUserRole(role);
-      setIsAuthenticated(true);
-      setCurrentView('dashboard');
+      setAuthenticated(true, role);
+      setView('dashboard');
       return;
     }
     if (pass === clinicSettings.accessPassword || !clinicSettings.accessPassword) {
-      setCurrentUserRole(role);
-      setIsAuthenticated(true);
+      setAuthenticated(true, role);
     } else {
-      alert(t.passwordPlaceholder);
+      alert("Senha incorreta");
     }
-  };
-
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setCurrentUserRole(null);
-  };
-
-  const handleFinishIntro = () => {
-    localStorage.setItem('consulfision_intro_seen', 'true');
-    setShowIntro(false);
-    setShowTutorial(true);
-  };
-
-  const savePatient = (data: PatientData) => {
-    const exists = allPatients.find(p => p.id === data.id);
-    if (exists) {
-      setAllPatients(prev => prev.map(p => p.id === data.id ? { ...data, lastConsultation: new Date().toISOString() } : p));
-    } else {
-      setAllPatients(prev => [...prev, { ...data, lastConsultation: new Date().toISOString() }]);
-    }
-    setPatientData(data);
-  };
-
-  const deletePatient = (id: string) => {
-    const pToDelete = allPatients.find(p => p.id === id);
-    if (pToDelete) {
-      if (patientData?.id === id) setPatientData(null);
-      setAllPatients(prev => prev.filter(p => p.id !== id));
-      setDeletedPatients(prev => [...prev, pToDelete]);
-    }
-  };
-
-  const selectPatient = (id: string) => {
-    const p = allPatients.find(p => p.id === id);
-    if (p) {
-      setPatientData(p);
-      setCurrentView('dashboard');
-    }
-  };
-
-  const handleAnalysisComplete = (report: AnalysisReport) => {
-    setLastExamAnalysis(report);
-    if (patientData) {
-      const updatedReport = { ...report, date: new Date().toISOString() };
-      const updatedPatient = {
-        ...patientData,
-        consultationHistory: [updatedReport, ...(patientData.consultationHistory || [])],
-        lastConsultation: updatedReport.date
-      };
-      savePatient(updatedPatient);
-    }
-  };
-
-  const handleViewReport = (report: AnalysisReport) => {
-    setLastExamAnalysis(report);
-    setCurrentView('protocols');
-  };
-
-  const handleActivate = (type: LicenseType, key?: string) => {
-    const isProfessionalOrGo = type !== LicenseType.FREE;
-    setClinicSettings(prev => ({
-      ...prev,
-      licenseKey: key || 'AUTO-ACTIVATED',
-      licenseType: type,
-      isActivated: isProfessionalOrGo,
-      activationDate: new Date().toISOString(),
-      expiryDate: isProfessionalOrGo 
-        ? new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString() // 1 ano
-        : new Date(Date.now() + 5 * 24 * 3600 * 1000).toISOString() // 5 dias
-    }));
-  };
-
-  const addCustomProtocol = (p: Protocol) => {
-    setCustomProtocols(prev => [...prev, p]);
-  };
-
-  const deleteCustomProtocol = (id: string) => {
-    setCustomProtocols(prev => prev.filter(p => p.id !== id));
   };
 
   const renderView = () => {
     switch (currentView) {
-      case 'dashboard': 
-        return <Dashboard setView={setCurrentView} patientData={patientData} examData={lastExamAnalysis} clinicSettings={clinicSettings} allPatients={allPatients} onSelectPatient={selectPatient} onDeletePatient={deletePatient} onLogout={handleLogout} userRole={currentUserRole} />;
-      case 'patient': 
-        return <PatientIntake patientData={patientData} setPatientData={savePatient} onAnalyzeNow={(data) => { savePatient(data); setCurrentView('protocols'); }} />;
-      case 'consultation': 
-        return <Consultation patientData={patientData} onReopenReport={() => setCurrentView('protocols')} hasReport={!!lastExamAnalysis} />;
-      case 'exams': 
-        return <ExamAnalysis patientData={patientData} onAnalysisComplete={handleAnalysisComplete} />;
-      case 'mapping':
-        return <AnatomicalMapper patientData={patientData} setPatientData={savePatient} language={clinicSettings.language || 'pt'} />;
-      case 'protocols': 
-        return <ProtocolGenerator patientData={patientData} examData={lastExamAnalysis} />;
-      case 'library':
-        return <Library language={clinicSettings.language || 'pt'} isCreator={isCreator} customProtocols={customProtocols} onAddCustom={addCustomProtocol} onDeleteCustom={deleteCustomProtocol} />;
-      case 'history':
-        return <ClinicalHistory patientData={patientData} language={clinicSettings.language || 'pt'} onSelectReport={handleViewReport} />;
-      case 'recycle':
-        return <RecycleBin deletedPatients={deletedPatients} onRestore={(id) => {}} onPermanentDelete={(id) => {}} onEmptyBin={() => {}} language={clinicSettings.language || 'pt'} />;
-      case 'settings':
-        return <Settings settings={clinicSettings} setSettings={setClinicSettings} />;
-      case 'help':
-        return <HelpCenter />;
-      default: 
-        return <Dashboard setView={setCurrentView} patientData={patientData} examData={lastExamAnalysis} clinicSettings={clinicSettings} allPatients={allPatients} onSelectPatient={selectPatient} onDeletePatient={deletePatient} onLogout={handleLogout} userRole={currentUserRole} />;
+      case 'dashboard': return <Dashboard setView={setView} patientData={patientData} examData={lastExamAnalysis} clinicSettings={clinicSettings} allPatients={allPatients} onSelectPatient={(id) => { setPatientData(allPatients.find(p => p.id === id) || null); clearRecommendations(); }} onLogout={logout} userRole={currentUserRole} recommendedCount={recommendedFrequencies.length} />;
+      case 'patient': return <PatientIntake patientData={patientData} setPatientData={savePatient} onAnalyzeNow={handleAnalyzeNow} />;
+      case 'consultation': return <Consultation patientData={patientData} onReportGenerated={handleReportGenerated} onReopenReport={() => setView('protocols')} hasReport={!!lastExamAnalysis} />;
+      case 'exams': return <ExamAnalysis patientData={patientData} onAnalysisComplete={handleReportGenerated} />;
+      case 'mapping': return <AnatomicalMapper patientData={patientData} setPatientData={savePatient} language={clinicSettings.language || 'pt'} />;
+      case 'generator': return <AnatomicalGenerator patientData={patientData} />;
+      case 'frequency': return <FrequencyGenerator />;
+      case 'exam_request': return <MedicalExamRequest patientData={patientData} />;
+      case 'protocols': return <ProtocolGenerator patientData={patientData} examData={lastExamAnalysis} onReportGenerated={handleReportGenerated} />;
+      case 'library': return (
+        <Library 
+          language={clinicSettings.language || 'pt'} 
+          isCreator={clinicSettings.licenseType === LicenseType.CREATOR} 
+          customProtocols={customProtocols} 
+          onAddCustom={(p) => setCustomProtocols([...customProtocols, p])}
+          onDeleteCustom={(id) => setCustomProtocols(customProtocols.filter(p => p.id !== id))}
+        />
+      );
+      case 'history': return <ClinicalHistory patientData={patientData} language={clinicSettings.language || 'pt'} onSelectReport={selectReport} />;
+      case 'settings': return <Settings settings={clinicSettings} setSettings={setClinicSettings} />;
+      case 'iridology': return <IridologyModule />;
+      case 'help': return <HelpCenter />;
+      case 'recycle': return <RecycleBin deletedPatients={deletedPatients} onRestore={() => {}} onPermanentDelete={() => {}} onEmptyBin={() => {}} language={clinicSettings.language || 'pt'} />;
+      default: return <Dashboard setView={setView} patientData={patientData} clinicSettings={clinicSettings} allPatients={allPatients} onSelectPatient={() => {}} onLogout={logout} userRole={currentUserRole} />;
     }
   };
 
-  if (showIntro) return <WelcomeIntro onFinish={handleFinishIntro} />;
-  
-  // Bloqueio por expiração ou falta de ativação (exceto se ainda estiver no trial gratuito)
-  if (isExpired || (!clinicSettings.isActivated && clinicSettings.licenseType === LicenseType.FREE && isExpired)) {
-    return <ActivationScreen onActivate={handleActivate} expired={isExpired} currentType={clinicSettings.licenseType} />;
-  }
-  
+  if (showIntro) return <WelcomeIntro onFinish={() => setShowIntro(false)} />;
   if (!isAuthenticated) return <LoginScreen onLogin={handleLogin} language={clinicSettings.language || 'pt'} />;
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden text-slate-900">
+    <div className="flex h-screen bg-slate-50 overflow-hidden text-slate-900 flex-col md:flex-row">
       {showTutorial && <TutorialWizard onClose={() => setShowTutorial(false)} />}
       
-      <Sidebar 
-        currentView={currentView} 
-        setView={setCurrentView} 
-        patientActive={!!patientData} 
-        clinicSettings={clinicSettings}
-        userRole={currentUserRole}
-        onLogout={handleLogout}
-        binCount={deletedPatients.length}
-        onOpenTutorial={() => setShowTutorial(true)}
-      />
-      <main className="flex-1 overflow-y-auto p-4 md:p-8 relative">
-        <div className="max-w-6xl mx-auto pb-24">
-          {renderView()}
+      {/* Mobile Header */}
+      <header className="md:hidden bg-white border-b border-slate-200 p-4 flex justify-between items-center z-40">
+        <h1 className="font-black text-emerald-600 tracking-tighter uppercase text-sm">Consulfision Mobile</h1>
+        <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-xs">👤</div>
+      </header>
+
+      <div className="hidden md:block">
+        <Sidebar 
+          currentView={currentView} 
+          setView={setView} 
+          patientActive={!!patientData} 
+          clinicSettings={clinicSettings}
+          userRole={currentUserRole}
+          onLogout={logout}
+          binCount={deletedPatients.length}
+        />
+      </div>
+
+      <main className="flex-1 overflow-y-auto p-4 md:p-8">
+        <div className="max-w-6xl mx-auto pb-32 md:pb-24">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={currentView}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+            >
+              {renderView()}
+            </motion.div>
+          </AnimatePresence>
         </div>
       </main>
+
+      <BottomNav currentView={currentView} setView={setView} userRole={currentUserRole} />
     </div>
   );
 };

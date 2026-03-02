@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { PatientData } from '../types';
+import { useStore } from '../store/useStore';
 
 interface PatientIntakeProps {
   patientData: PatientData | null;
@@ -9,6 +10,7 @@ interface PatientIntakeProps {
 }
 
 export const PatientIntake: React.FC<PatientIntakeProps> = ({ patientData, setPatientData, onAnalyzeNow }) => {
+  const { isAnalyzing } = useStore();
   const generateId = () => {
     const now = new Date();
     const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -68,7 +70,27 @@ export const PatientIntake: React.FC<PatientIntakeProps> = ({ patientData, setPa
   };
 
   return (
-    <div className="space-y-6 animate-fadeIn pb-12">
+    <div className="space-y-6 animate-fadeIn pb-12 relative">
+      {isAnalyzing && (
+        <div className="fixed inset-0 z-[500] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-white p-12 rounded-[3.5rem] shadow-2xl text-center space-y-8 max-w-md animate-slideUp">
+            <div className="relative w-24 h-24 mx-auto">
+              <div className="absolute inset-0 border-4 border-emerald-100 rounded-full"></div>
+              <div className="absolute inset-0 border-4 border-emerald-600 rounded-full border-t-transparent animate-spin"></div>
+              <div className="absolute inset-0 flex items-center justify-center text-4xl">🧠</div>
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Análise em Curso</h3>
+              <p className="text-slate-500 font-medium italic">O Consulfision está processando os dados clínicos e gerando protocolos personalizados...</p>
+            </div>
+            <div className="flex gap-2 justify-center">
+              <div className="w-2 h-2 bg-emerald-600 rounded-full animate-bounce"></div>
+              <div className="w-2 h-2 bg-emerald-600 rounded-full animate-bounce [animation-delay:0.2s]"></div>
+              <div className="w-2 h-2 bg-emerald-600 rounded-full animate-bounce [animation-delay:0.4s]"></div>
+            </div>
+          </div>
+        </div>
+      )}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-2xl font-black text-slate-900 tracking-tight uppercase">Ficha Clínica Consulfision</h2>

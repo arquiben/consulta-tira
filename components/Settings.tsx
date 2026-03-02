@@ -1,8 +1,10 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ClinicSettings } from '../types';
 import { translations } from '../translations';
 import { OFFICIAL_NSO_LIBRARY } from '../services/libraryNSO';
+import { getSupabase } from '../services/supabase';
+import { Cloud, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 
 interface SettingsProps {
   settings: ClinicSettings;
@@ -18,6 +20,26 @@ export const Settings: React.FC<SettingsProps> = ({ settings, setSettings }) => 
   const [tempAccessPass, setTempAccessPass] = useState(settings.accessPassword || '');
   const [backupProgress, setBackupProgress] = useState(0);
   const [syncingWithCentral, setSyncingWithCentral] = useState(false);
+  const [supabaseStatus, setSupabaseStatus] = useState<'connected' | 'disconnected' | 'error'>('disconnected');
+
+  useEffect(() => {
+    const checkSupabase = async () => {
+      const client = getSupabase();
+      if (!client) {
+        setSupabaseStatus('disconnected');
+        return;
+      }
+      
+      try {
+        const { error } = await client.from('patients').select('count', { count: 'exact', head: true });
+        if (error) throw error;
+        setSupabaseStatus('connected');
+      } catch (err) {
+        setSupabaseStatus('disconnected');
+      }
+    };
+    checkSupabase();
+  }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -116,6 +138,46 @@ export const Settings: React.FC<SettingsProps> = ({ settings, setSettings }) => 
                    onChange={(e) => setTempClinic(e.target.value)}
                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 font-bold outline-none"
                  />
+              </div>
+           </div>
+        </section>
+
+        <section className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-8">
+           <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center text-xl">
+                <Cloud size={24} />
+              </div>
+              <h3 className="text-lg font-black uppercase tracking-tight">Integração Supabase</h3>
+           </div>
+           <div className="space-y-6">
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                <div className="flex items-center gap-3">
+                  {supabaseStatus === 'connected' ? (
+                    <CheckCircle2 size={20} className="text-emerald-500" />
+                  ) : supabaseStatus === 'error' ? (
+                    <AlertCircle size={20} className="text-red-500" />
+                  ) : (
+                    <RefreshCw size={20} className="text-slate-400" />
+                  )}
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-600">
+                    Status: {supabaseStatus === 'connected' ? 'Conectado' : 'Aguardando Configuração'}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                <p className="text-[10px] text-blue-800 font-medium leading-relaxed italic">
+                  A integração com Supabase permite que seus dados sejam sincronizados na nuvem em tempo real, garantindo acesso multi-dispositivo e backup automático.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Configuração Necessária</p>
+                <div className="text-[10px] text-slate-500 space-y-2">
+                  <p>1. Crie um projeto no Supabase.</p>
+                  <p>2. Configure as variáveis de ambiente <code className="bg-slate-100 px-1 rounded text-slate-900">VITE_SUPABASE_URL</code> e <code className="bg-slate-100 px-1 rounded text-slate-900">VITE_SUPABASE_ANON_KEY</code>.</p>
+                  <p>3. Crie as tabelas: <code className="bg-slate-100 px-1 rounded text-slate-900">patients</code>, <code className="bg-slate-100 px-1 rounded text-slate-900">frequency_protocols</code>, <code className="bg-slate-100 px-1 rounded text-slate-900">iridology_analysis</code> e <code className="bg-slate-100 px-1 rounded text-slate-900">custom_protocols</code>.</p>
+                </div>
               </div>
            </div>
         </section>

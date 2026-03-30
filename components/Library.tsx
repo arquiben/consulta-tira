@@ -3,6 +3,8 @@ import React, { useState } from 'react';
 import { OFFICIAL_NSO_LIBRARY } from '../services/libraryNSO';
 import { translations } from '../translations';
 import { Protocol, TherapyType } from '../types';
+import { Play } from 'lucide-react';
+import { narrateProtocol } from '../services/tts';
 
 interface LibraryProps {
   language: string;
@@ -117,12 +119,21 @@ export const Library: React.FC<LibraryProps> = ({
         <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-6">
            {filteredProtocols.map((p, i) => (
              <div key={p.id || i} className={`bg-white p-10 rounded-[3rem] border shadow-sm hover:shadow-2xl transition-all ${p.isCustom ? 'border-amber-200' : 'border-slate-100'}`}>
-                <div className="flex items-center gap-4 mb-4">
-                   <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl ${p.isCustom ? 'bg-amber-500 text-slate-900' : 'bg-emerald-50 text-emerald-600'}`}>{p.isCustom ? '👑' : '📜'}</div>
-                   <div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600">{p.therapy as string}</span>
-                      <h4 className="text-xl font-black text-slate-900 tracking-tight leading-none">{p.title}</h4>
+                <div className="flex items-center justify-between gap-4 mb-4">
+                   <div className="flex items-center gap-4">
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl ${p.isCustom ? 'bg-amber-500 text-slate-900' : 'bg-emerald-50 text-emerald-600'}`}>{p.isCustom ? '👑' : '📜'}</div>
+                      <div>
+                         <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600">{p.therapy as string}</span>
+                         <h4 className="text-xl font-black text-slate-900 tracking-tight leading-none">{p.title}</h4>
+                      </div>
                    </div>
+                   <button 
+                     onClick={() => narrateProtocol(p)}
+                     className="w-10 h-10 bg-emerald-600 text-white rounded-2xl flex items-center justify-center shadow-lg hover:bg-emerald-700 transition-all"
+                     title="Narrar Protocolo"
+                   >
+                     <Play size={16} fill="currentColor" />
+                   </button>
                 </div>
                 <p className="text-slate-500 text-sm leading-relaxed italic mb-6">"{p.instructions}"</p>
                 <div className="space-y-2">

@@ -2,7 +2,8 @@
 import React, { useState } from 'react';
 import { translations } from '../translations';
 import { UserRole } from '../types';
-import { GoogleGenAI } from '@google/genai';
+import { getGeminiAI, withRetry } from '../services/gemini';
+import { ShieldCheck } from 'lucide-react';
 
 interface LoginScreenProps {
   onLogin: (pass: string, role: UserRole) => void;
@@ -20,9 +21,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, language }) =
 
   const roles = [
     { id: UserRole.DOCTOR, label: t.role_doctor, icon: 'https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?auto=format&fit=crop&w=400&h=400' },
-    { id: UserRole.THERAPIST, label: t.role_therapist, icon: 'https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?auto=format&fit=crop&w=400&h=400' },
-    { id: UserRole.STUDENT, label: t.role_student, icon: 'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=400&h=400' },
-    { id: UserRole.PATIENT, label: t.role_patient, icon: 'https://images.unsplash.com/photo-1581056771107-24ca5f033842?auto=format&fit=crop&w=400&h=400' },
+    { id: UserRole.THERAPIST, label: t.role_therapist, icon: 'https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=400&h=400' },
+    { id: UserRole.STUDENT, label: t.role_student, icon: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=400&h=400' },
+    { id: UserRole.PATIENT, label: t.role_patient, icon: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&h=400' },
   ];
 
   const validateProfessional = async () => {
@@ -40,7 +41,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, language }) =
     setValidationError('');
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+      const ai = getGeminiAI();
       const prompt = `Valide se as seguintes credenciais profissionais parecem autênticas para um ${selectedRole}. 
       Número de Registro/Ordem: ${regNumber}
       Organização/País: ${organization || 'Ordem dos Médicos'}
@@ -49,11 +50,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, language }) =
       Considere formatos comuns de Angola (Fometra, Cometa, Meva, Câmara) e outros países. 
       Se o número for muito curto ou parecer aleatório, marque como inválido.`;
 
-      const response = await ai.models.generateContent({
+      const response = await withRetry(() => ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: [{ text: prompt }],
         config: { responseMimeType: 'application/json' }
-      });
+      }));
 
       const result = JSON.parse(response.text || '{"valid": false}');
       if (result.valid) {
@@ -86,26 +87,28 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, language }) =
   };
 
   return (
-    <div className="fixed inset-0 z-[300] bg-slate-900 flex items-center justify-center p-6 overflow-y-auto">
-      <div className="max-w-2xl w-full bg-white rounded-[3.5rem] shadow-2xl overflow-hidden p-8 md:p-16 space-y-10 animate-slideUp">
-        <div className="text-center space-y-4">
-          <div className="w-20 h-20 bg-emerald-600 text-white rounded-3xl mx-auto flex items-center justify-center text-4xl shadow-xl">🛡️</div>
-          <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">{t.selectProfile}</h2>
-          <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{t.authAuthor}</p>
+    <div className="fixed inset-0 z-[300] bg-slate-900 flex flex-col items-center justify-center p-4 overflow-y-auto">
+      <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl overflow-hidden p-5 md:p-8 space-y-4 animate-slideUp my-auto">
+        <div className="text-center space-y-1">
+          <div className="w-10 h-10 bg-emerald-600 text-white rounded-xl mx-auto flex items-center justify-center shadow-lg">
+            <ShieldCheck size={20} />
+          </div>
+          <h2 className="text-lg font-black text-slate-900 uppercase tracking-tighter">{t.selectProfile}</h2>
+          <p className="text-slate-400 text-[7px] font-black uppercase tracking-widest">{t.authAuthor}</p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-2">
           {roles.map((role) => (
             <button
               key={role.id}
               onClick={() => setSelectedRole(role.id)}
-              className={`p-4 rounded-[2rem] border-2 transition-all flex flex-col items-center gap-3 text-center ${
+              className={`p-2 rounded-xl border-2 transition-all flex flex-col items-center gap-1 text-center ${
                 selectedRole === role.id 
-                  ? 'border-emerald-500 bg-emerald-50 shadow-lg scale-105' 
+                  ? 'border-emerald-500 bg-emerald-50 shadow-md scale-105' 
                   : 'border-slate-100 bg-slate-50 hover:bg-white hover:border-emerald-200'
               }`}
             >
-              <div className="w-20 h-20 rounded-2xl overflow-hidden shadow-md border-2 border-white">
+              <div className="w-10 h-10 rounded-lg overflow-hidden shadow-sm border-2 border-white">
                 <img 
                   src={role.icon} 
                   alt={role.label} 
@@ -113,24 +116,24 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, language }) =
                   referrerPolicy="no-referrer"
                 />
               </div>
-              <span className="font-black text-[10px] uppercase tracking-tight text-slate-700">{role.label}</span>
+              <span className="font-black text-[7px] uppercase tracking-tight text-slate-700">{role.label}</span>
             </button>
           ))}
         </div>
 
         {selectedRole && (
-          <form onSubmit={handleSubmit} className="space-y-6 animate-fadeIn">
+          <form onSubmit={handleSubmit} className="space-y-3 animate-fadeIn">
             {(selectedRole === UserRole.DOCTOR || selectedRole === UserRole.THERAPIST) && (
-              <div className="space-y-4 p-6 bg-slate-50 rounded-[2rem] border border-slate-100">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">
+              <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <div className="space-y-1">
+                  <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest block">
                     {selectedRole === UserRole.DOCTOR ? 'Número de Ordem dos Médicos' : 'Organização (Fometra, Cometa, Meva, etc.)'}
                   </label>
                   {selectedRole === UserRole.THERAPIST ? (
                     <select 
                       value={organization}
                       onChange={(e) => setOrganization(e.target.value)}
-                      className="w-full p-4 bg-white rounded-2xl border border-slate-200 font-bold outline-none focus:ring-4 focus:ring-emerald-500/10 transition-all text-sm"
+                      className="w-full p-2 bg-white rounded-lg border border-slate-200 font-bold outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all text-[9px]"
                     >
                       <option value="">Selecione a Organização</option>
                       <option value="Fometra">FOMETRA</option>
@@ -145,14 +148,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, language }) =
                     placeholder={selectedRole === UserRole.DOCTOR ? "Ex: OM-12345" : "Número de Registro"}
                     value={regNumber}
                     onChange={(e) => setRegNumber(e.target.value)}
-                    className="w-full p-4 bg-white rounded-2xl border border-slate-200 font-bold outline-none focus:ring-4 focus:ring-emerald-500/10 transition-all text-sm"
+                    className="w-full p-2 bg-white rounded-lg border border-slate-200 font-bold outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all text-[9px]"
                   />
                 </div>
               </div>
             )}
 
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block text-center">
+            <div className="space-y-1">
+              <label className="text-[7px] font-black text-slate-400 uppercase tracking-widest block text-center">
                 {selectedRole === UserRole.PATIENT ? 'Identificação do Paciente (Opcional)' : t.accessPassword}
               </label>
               <input 
@@ -160,12 +163,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, language }) =
                 placeholder={t.passwordPlaceholder}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full p-6 bg-slate-50 rounded-3xl border-2 border-slate-100 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all text-center font-bold outline-none"
+                className="w-full p-2.5 bg-slate-50 rounded-xl border-2 border-slate-100 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 transition-all text-center font-bold outline-none text-xs"
               />
             </div>
 
             {validationError && (
-              <p className="text-red-500 text-[10px] font-black uppercase text-center animate-pulse">
+              <p className="text-red-500 text-[7px] font-black uppercase text-center animate-pulse">
                 ⚠️ {validationError}
               </p>
             )}
@@ -173,12 +176,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, language }) =
             <button 
               type="submit"
               disabled={isValidating}
-              className="w-full bg-emerald-600 text-white py-6 rounded-3xl font-black text-sm uppercase tracking-widest shadow-xl hover:bg-emerald-700 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3"
+              className="w-full bg-emerald-600 text-white py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg hover:bg-emerald-700 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {isValidating ? (
                 <>
-                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                  Verificando Credenciais...
+                  <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                  Verificando...
                 </>
               ) : t.login}
             </button>

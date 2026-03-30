@@ -1,7 +1,8 @@
 
 import React, { useState } from 'react';
-import { GoogleGenAI } from "@google/genai";
+import { getGeminiAI, withRetry } from '../services/gemini';
 import { speakText } from '../services/tts';
+import { BookOpen, HelpCircle, Stethoscope, User, Bot, Send, Plus } from 'lucide-react';
 
 export const HelpCenter: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<string>('intro');
@@ -10,25 +11,25 @@ export const HelpCenter: React.FC = () => {
   const [isAiLoading, setIsAiLoading] = useState(false);
 
   const categories = [
-    { id: 'intro', label: 'Manual de Uso', icon: '📖' },
-    { id: 'faq', label: 'FAQ - Dúvidas', icon: '❓' },
-    { id: 'terapeuta', label: 'Para Terapeutas', icon: '🧑‍⚕️' },
-    { id: 'paciente', label: 'Para Pacientes', icon: '🧑‍🦱' },
-    { id: 'ai_support', label: 'Suporte IA 24h', icon: '🤖' },
+    { id: 'intro', label: 'Manual de Uso', icon: <BookOpen size={20} /> },
+    { id: 'faq', label: 'FAQ - Dúvidas', icon: <HelpCircle size={20} /> },
+    { id: 'terapeuta', label: 'Para Terapeutas', icon: <Stethoscope size={20} /> },
+    { id: 'paciente', label: 'Para Pacientes', icon: <User size={20} /> },
+    { id: 'ai_support', label: 'Suporte IA 24h', icon: <Bot size={20} /> },
   ];
 
   const handleAiSupport = async () => {
     if (!aiQuestion.trim()) return;
     setIsAiLoading(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-      const response = await ai.models.generateContent({
+      const ai = getGeminiAI();
+      const response = await withRetry(() => ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: `Como funciona o Consulfision? Dúvida do usuário: ${aiQuestion}`,
         config: {
           systemInstruction: "Você é o Agente de Suporte Consulfision. Criado por Quissambi Benvindo. Ajude o usuário a navegar no app. O app analisa exames, gera protocolos de biomagnetismo, acupuntura e hidroterapia. Responda de forma curta e resolutiva."
         }
-      });
+      }));
       setAiResponse(response.text || '');
     } catch (err) {
       setAiResponse('Erro ao conectar com o suporte.');
@@ -56,7 +57,9 @@ export const HelpCenter: React.FC = () => {
                   : 'bg-white text-slate-600 hover:bg-slate-50 border-slate-100'
               }`}
             >
-              <span className="text-2xl">{cat.icon}</span>
+              <div className={activeCategory === cat.id ? 'text-white' : 'text-emerald-600'}>
+                {cat.icon}
+              </div>
               <span className="font-black text-[11px] uppercase tracking-tight">{cat.label}</span>
             </button>
           ))}
@@ -85,7 +88,7 @@ export const HelpCenter: React.FC = () => {
           {activeCategory === 'ai_support' && (
             <div className="space-y-8 animate-fadeIn">
               <div className="flex items-center gap-6">
-                 <div className="w-16 h-16 bg-emerald-600 text-white rounded-2xl flex items-center justify-center text-3xl shadow-xl">🤖</div>
+                 <div className="w-16 h-16 bg-emerald-600 text-white rounded-2xl flex items-center justify-center shadow-xl"><Bot size={32} /></div>
                  <div>
                     <h3 className="text-2xl font-black uppercase text-slate-900">Assistente de Suporte</h3>
                     <p className="text-slate-500 text-sm">Tire dúvidas operacionais sobre qualquer recurso do app.</p>

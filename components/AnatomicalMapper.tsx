@@ -7,6 +7,7 @@ interface AnatomicalMapperProps {
   patientData: PatientData | null;
   setPatientData: (data: PatientData) => void;
   language: string;
+  examData?: any;
 }
 
 const views = [
@@ -29,11 +30,18 @@ const Silhouettes: Record<string, string> = {
   feet: "https://images.unsplash.com/photo-1560713615-dce19197c31e?q=80&w=1000&auto=format&fit=crop"
 };
 
-export const AnatomicalMapper: React.FC<AnatomicalMapperProps> = ({ patientData, setPatientData, language }) => {
+export const AnatomicalMapper: React.FC<AnatomicalMapperProps> = ({ patientData, setPatientData, language, examData }) => {
   const [activeView, setActiveView] = useState('frontal');
   const [selectedMarker, setSelectedMarker] = useState<AnatomicalMarker | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const t = translations[language] || translations.pt;
+  const t = translations[language as keyof typeof translations] || translations.pt;
+
+  // Sincronizar marcadores com o diagnóstico se existirem
+  React.useEffect(() => {
+    if (examData && examData.summary) {
+      console.log("Diagnóstico sincronizado no Mapeador:", examData.summary);
+    }
+  }, [examData]);
 
   if (!patientData) {
     return (

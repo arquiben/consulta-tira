@@ -9,8 +9,20 @@ let supabaseInstance: SupabaseClient | null = null;
 export const getSupabase = (): SupabaseClient | null => {
   if (!supabaseUrl || !supabaseAnonKey) return null;
   
+  // Basic URL validation to avoid createClient throwing
+  try {
+    new URL(supabaseUrl);
+  } catch (e) {
+    return null;
+  }
+  
   if (!supabaseInstance) {
-    supabaseInstance = createClient(supabaseUrl, supabaseAnonKey);
+    try {
+      supabaseInstance = createClient(supabaseUrl, supabaseAnonKey);
+    } catch (err) {
+      console.error('Failed to initialize Supabase:', err);
+      return null;
+    }
   }
   return supabaseInstance;
 };
@@ -47,5 +59,21 @@ export const fetchFromSupabase = async (table: string) => {
   } catch (err) {
     console.error(`Supabase fetch error for ${table}:`, err);
     return [];
+  }
+};
+
+export const deleteFromSupabase = async (table: string, id: string) => {
+  const client = getSupabase();
+  if (!client) return;
+  
+  try {
+    const { error } = await client
+      .from(table)
+      .delete()
+      .eq('id', id);
+    
+    if (error) console.error(`Error deleting from ${table}:`, error);
+  } catch (err) {
+    console.error(`Supabase delete error for ${table}:`, err);
   }
 };

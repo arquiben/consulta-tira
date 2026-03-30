@@ -21,19 +21,40 @@ export const getGeminiAI = () => {
   return new GoogleGenAI({ apiKey });
 };
 
-async function withRetry<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
+// Utility for robust API calls with retry logic
+export async function withRetry<T>(fn: () => Promise<T>, retries = 5, delay = 1000): Promise<T> {
   try {
     return await fn();
   } catch (error: any) {
-    const isNetworkError = error.message?.toLowerCase().includes('network') || 
-                           error.message?.toLowerCase().includes('fetch') ||
-                           error.message?.toLowerCase().includes('timeout');
+    let errorStr = "";
+    try {
+      errorStr = JSON.stringify(error).toLowerCase();
+    } catch (e) {
+      errorStr = String(error).toLowerCase();
+    }
+    const errorMessage = (error.message || "").toLowerCase();
+    
+    const isNetworkError = 
+      errorMessage.includes('network') || 
+      errorMessage.includes('fetch') ||
+      errorMessage.includes('timeout') ||
+      errorMessage.includes('rpc') ||
+      errorMessage.includes('xhr') ||
+      errorMessage.includes('500') ||
+      errorMessage.includes('unavailable') ||
+      errorStr.includes('rpc') ||
+      errorStr.includes('xhr') ||
+      errorStr.includes('500');
     
     if (retries > 0 && isNetworkError) {
-      console.warn(`Network error detected. Retrying... (${retries} attempts left)`);
-      await new Promise(resolve => setTimeout(resolve, delay));
+      console.warn(`Transient error detected: "${error.message || 'Unknown error'}". Retrying... (${retries} attempts left)`);
+      // Add some jitter to the delay
+      const jitter = Math.random() * 200;
+      await new Promise(resolve => setTimeout(resolve, delay + jitter));
       return withRetry(fn, retries - 1, delay * 2);
     }
+    
+    console.error("Gemini API Error:", error);
     throw error;
   }
 }
@@ -64,12 +85,19 @@ function enrichPromptWithPatient(basePrompt: string, patient?: PatientData | nul
     ? `MARCADORES NO ATLAS 3D: ${patient.anatomicalMarkers.map(m => `${m.label} (Intensidade: ${m.intensity})`).join(', ')}`
     : 'Sem marcadores anatômicos específicos.';
 
+  const historyStr = patient.consultationHistory?.length
+    ? `HISTÓRICO DE CONSULTAS ANTERIORES (Para Comparação): ${patient.consultationHistory.map(h => `Data: ${h.date}, Resumo: ${h.summary}, Achados: ${h.findings.join('; ')}`).join(' | ')}`
+    : 'Sem consultas anteriores registradas.';
+
   return `CONTEXTO DO PACIENTE:
 Nome: ${patient.name} | Idade: ${patient.age} | Peso: ${patient.weight}kg | Queixas: ${patient.complaints} | Histórico: ${patient.history}
 ${markersStr}
+${historyStr}
 
 SOLICITAÇÃO DE ANÁLISE:
-${basePrompt}`;
+${basePrompt}
+
+DIRETRIZ DE COMPARAÇÃO: Se houver histórico de consultas anteriores, realize uma comparação detalhada entre o estado atual e o anterior. Identifique melhorias, estabilizações ou regressões. Coloque essa análise no campo "comparisonWithPrevious".`;
 }
 
 export async function generateAnatomicalImage(prompt: string): Promise<string> {
@@ -203,17 +231,126 @@ Responda apenas com as perguntas, formatadas em uma lista clara.`;
   return response.text || "Não foi possível gerar perguntas de acompanhamento no momento.";
 }
 
-export async function generateTherapyReport(prompt: string, imageBase64?: string, patient?: PatientData | null): Promise<AnalysisReport> {
+export async function findHardwareSetup(deviceName: string): Promise<{ text: string, links: { uri: string, title: string }[] }> {
+  const ai = getGeminiAI();
+  const model = "gemini-3-flash-preview";
+
+  const prompt = `Localize o link de download oficial ou instruções de instalação (setup) para o seguinte dispositivo de bioressonância: "${deviceName}". 
+  Procure por drivers, manuais e software de instalação. 
+  Forneça um resumo das instruções e liste os links encontrados.`;
+
+  const response = await withRetry(() => ai.models.generateContent({
+    model,
+    contents: { parts: [{ text: prompt }] },
+    config: {
+      tools: [{ googleSearch: {} }],
+    },
+  }));
+
+  const links = response.candidates?.[0]?.groundingMetadata?.groundingChunks
+    ?.filter(chunk => chunk.web)
+    ?.map(chunk => ({
+      uri: chunk.web!.uri,
+      title: chunk.web!.title
+    })) || [];
+
+  return {
+    text: response.text || "Não foi possível localizar informações de setup no momento.",
+    links
+  };
+}
+
+export async function generateQuantumAnalysisReport(results: any[], patient?: PatientData | null): Promise<AnalysisReport & { searchLinks: { uri: string, title: string }[] }> {
+  const ai = getGeminiAI();
+  const model = "gemini-3-flash-preview";
+
+  const resultsStr = results.map(r => `- ${r.name}: ${r.value}`).join('\n');
+  const patientStr = patient ? `Paciente: ${patient.name}, Idade: ${patient.age}, Queixas: ${patient.complaints}` : 'Paciente não identificado';
+
+  const prompt = `
+    Realize uma análise clínica profunda de Bio-Ressonância Quântica.
+    CONTEXTO: ${patientStr}
+    RESULTADOS DO ESCANEAMENTO:
+    ${resultsStr}
+    
+    Use a busca do Google para encontrar as pesquisas clínicas mais recentes, protocolos de tratamento integrativo e correlações patológicas para os desequilíbrios detectados.
+    Forneça uma interpretação holística, identifique causas raiz prováveis e sugira protocolos específicos de Biomagnetismo, Nutrição e Fitoterapia.
+  `;
+
+  const response = await withRetry(() => ai.models.generateContent({
+    model,
+    contents: { parts: [{ text: prompt }] },
+    config: {
+      systemInstruction: SYSTEM_PROMPT,
+      temperature: 0.2,
+      responseMimeType: "application/json",
+      tools: [{ googleSearch: {} }],
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          summary: { type: Type.STRING },
+          findings: { type: Type.ARRAY, items: { type: Type.STRING } },
+          criticalAlert: { type: Type.BOOLEAN },
+          emergencyLevel: { type: Type.STRING },
+          suggestedExams: { type: Type.ARRAY, items: { type: Type.STRING } },
+          suggestedProtocols: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                therapy: { type: Type.STRING },
+                title: { type: Type.STRING },
+                instructions: { type: Type.STRING },
+                suggestedPhytotherapeutics: { type: Type.ARRAY, items: { type: Type.STRING } },
+                suggestedSupplements: { type: Type.ARRAY, items: { type: Type.STRING } },
+                dietaryPlan: { type: Type.ARRAY, items: { type: Type.STRING } }
+              },
+              required: ["therapy", "instructions", "title"]
+            }
+          }
+        },
+        required: ["summary", "suggestedProtocols", "emergencyLevel", "findings"]
+      }
+    }
+  }));
+
+  const searchLinks = response.candidates?.[0]?.groundingMetadata?.groundingChunks
+    ?.filter(chunk => chunk.web)
+    ?.map(chunk => ({
+      uri: chunk.web!.uri,
+      title: chunk.web!.title
+    })) || [];
+
+  try {
+    const result = JSON.parse(response.text);
+    return {
+      ...result,
+      searchLinks,
+      date: new Date().toISOString()
+    };
+  } catch (e) {
+    console.error("Erro ao processar JSON da IA Quântica:", e);
+    throw new Error("Falha ao processar relatório de bio-ressonância.");
+  }
+}
+
+export async function generateTherapyReport(prompt: string, imagesBase64?: string | string[], patient?: PatientData | null): Promise<AnalysisReport> {
   const ai = getGeminiAI();
   const model = "gemini-3.1-pro-preview";
 
   const parts: any[] = [{ text: enrichPromptWithPatient(prompt, patient) }];
-  if (imageBase64) {
-    parts.push({
-      inlineData: {
-        data: imageBase64,
-        mimeType: "image/jpeg"
-      }
+  
+  if (imagesBase64) {
+    const images = Array.isArray(imagesBase64) ? imagesBase64 : [imagesBase64];
+    images.forEach(img => {
+      // Remove data:image/jpeg;base64, prefix if present
+      const base64Data = img.includes('base64,') ? img.split('base64,')[1] : img;
+      parts.push({
+        inlineData: {
+          data: base64Data,
+          mimeType: "image/jpeg"
+        }
+      });
     });
   }
 
@@ -231,6 +368,9 @@ export async function generateTherapyReport(prompt: string, imageBase64?: string
           findings: { type: Type.ARRAY, items: { type: Type.STRING } },
           criticalAlert: { type: Type.BOOLEAN },
           emergencyLevel: { type: Type.STRING, description: "low, medium, high, critical" },
+          diagnosedPathologies: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Lista de patologias ou doenças diagnosticadas nesta análise." },
+          revaluationDate: { type: Type.STRING, description: "Data sugerida para a próxima reavaliação (formato YYYY-MM-DD)." },
+          comparisonWithPrevious: { type: Type.STRING, description: "Análise comparativa com consultas anteriores, destacando melhorias ou pioras." },
           suggestedExams: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Lista de exames laboratoriais ou de imagem necessários" },
           suggestedProtocols: {
             type: Type.ARRAY,
@@ -242,6 +382,19 @@ export async function generateTherapyReport(prompt: string, imageBase64?: string
                 instructions: { type: Type.STRING },
                 suggestedPhytotherapeutics: { type: Type.ARRAY, items: { type: Type.STRING } },
                 suggestedPharmaceuticals: { type: Type.ARRAY, items: { type: Type.STRING } },
+                prescriptions: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      name: { type: Type.STRING, description: "Nome do fármaco ou fitoterápico" },
+                      quantity: { type: Type.STRING, description: "Quantidade total (ex: 1 frasco, 30 cápsulas)" },
+                      dosage: { type: Type.STRING, description: "Forma de tomar (ex: 1 cápsula 8/8h)" },
+                      days: { type: Type.NUMBER, description: "Duração do tratamento em dias" }
+                    },
+                    required: ["name", "quantity", "dosage", "days"]
+                  }
+                },
                 suggestedSupplements: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Vitaminas e Minerais recomendados" },
                 dietaryPlan: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Orientações de dieta (Oncológica, Energética, etc)" },
                 steps: {

@@ -5,22 +5,26 @@ import { PatientData, IridologyZone, IridologyAnalysis, Protocol, TherapyType } 
 import { generateTherapyReport } from '../services/gemini';
 import { speakText } from '../services/tts';
 import { Camera, RefreshCw, Save, FileText, CheckCircle2, AlertCircle, Eye, Sparkles, Cloud, FileDown } from 'lucide-react';
-
-const IRIDOLOGY_ZONES = [
-  { id: 1, name: 'Estômago' },
-  { id: 2, name: 'Intestino' },
-  { id: 3, name: 'Fígado' },
-  { id: 4, name: 'Vesícula' },
-  { id: 5, name: 'Pâncreas' },
-  { id: 6, name: 'Coração' },
-  { id: 7, name: 'Pulmões' },
-  { id: 8, name: 'Rins' },
-  { id: 9, name: 'Sistema Nervoso' },
-  { id: 10, name: 'Coluna' },
-];
+import { translations } from '../translations';
+import { generateConsultationPDF, generateConsultationWord } from '../services/documentGenerator';
 
 export const IridologyModule: React.FC = () => {
-  const { patientData, saveIridologyAnalysis, setView } = useStore();
+  const { patientData, saveIridologyAnalysis, setView, clinicSettings } = useStore();
+  const t = translations[clinicSettings.language || 'pt'] || translations.pt;
+
+  const IRIDOLOGY_ZONES = [
+    { id: 1, name: t.stomach },
+    { id: 2, name: t.intestine },
+    { id: 3, name: t.liver },
+    { id: 4, name: t.gallbladder },
+    { id: 5, name: t.pancreas },
+    { id: 6, name: t.heart },
+    { id: 7, name: t.lungs },
+    { id: 8, name: t.kidneys },
+    { id: 9, name: t.nervousSystem },
+    { id: 10, name: t.spine },
+  ];
+
   const [step, setStep] = useState<'capture' | 'mapping' | 'result'>('capture');
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -37,13 +41,19 @@ export const IridologyModule: React.FC = () => {
   const startCamera = async () => {
     setIsCameraActive(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
+        });
+      } catch (initialErr) {
+        console.warn("Initial camera request failed, trying fallback:", initialErr);
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
       if (videoRef.current) videoRef.current.srcObject = stream;
     } catch (err) {
-      console.error(err);
-      alert("Câmera indisponível ou permissão negada.");
+      console.error("Detailed Camera Error:", err);
+      alert(t.cameraUnavailable || "Câmera indisponível ou permissão negada.");
       setIsCameraActive(false);
     }
   };
@@ -51,6 +61,8 @@ export const IridologyModule: React.FC = () => {
   const stopCamera = () => {
     if (videoRef.current?.srcObject) {
       (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
     }
     setIsCameraActive(false);
   };
@@ -90,11 +102,11 @@ export const IridologyModule: React.FC = () => {
 
   const runAIAnalysis = async () => {
     if (!patientData) {
-      alert("Selecione um paciente primeiro.");
+      alert(t.noPatientSelected);
       return;
     }
     setIsAnalyzing(true);
-    speakText("Iniciando análise iridológica computacional. Processando zonas de biocampo ocular.");
+    speakText(t.startingIridologyAnalysis || "Iniciando análise iridológica computacional. Processando zonas de biocampo ocular.");
 
     try {
       const alteredZones = zones.filter(z => z.status === 'altered');
@@ -128,38 +140,70 @@ export const IridologyModule: React.FC = () => {
       setAnalysisResult(analysis);
       saveIridologyAnalysis(analysis);
       setStep('result');
-      speakText("Análise concluída. O mapa iridológico identificou áreas de interesse clínico. Relatório disponível.");
+      speakText(t.analysisCompleted || "Análise concluída. O mapa iridológico identificou áreas de interesse clínico. Relatório disponível.");
     } catch (err) {
       console.error(err);
-      alert("Erro na análise de IA.");
+      alert(t.aiAnalysisError || "Erro na análise de IA.");
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  const handleSave = (type: 'pdf' | 'word' | 'cloud') => {
+  const handleSave = async (type: 'pdf' | 'word' | 'cloud') => {
+    if (!patientData || !analysisResult) return;
+    
     setIsSaving(type);
     const messages = {
-      pdf: "Gerando laudo iridológico em PDF...",
-      word: "Exportando análise de íris para Word...",
-      cloud: "Sincronizando mapeamento com a nuvem NSO..."
+      pdf: t.generatingPdf || "Gerando laudo iridológico em PDF...",
+      word: t.exportingWord || "Exportando análise de íris para Word...",
+      cloud: t.syncingCloud || "Sincronizando mapeamento com a nuvem NSO..."
     };
+    
     speakText(messages[type]);
-    setTimeout(() => {
+    
+    // Convert IridologyAnalysis to a format compatible with generateConsultationPDF
+    const mappedReport: any = {
+      date: analysisResult.date,
+      summary: analysisResult.interpretation,
+      findings: analysisResult.zones
+        .filter(z => z.status === 'altered')
+        .map(z => `${z.name}: ${z.severity || 'alterado'}`),
+      suggestedProtocols: [analysisResult.suggestedProtocol],
+      disclaimer: "Análise iridológica baseada em reconhecimento de padrões via IA.",
+      criticalAlert: false,
+      emergencyLevel: 'low'
+    };
+    
+    try {
+      if (type === 'pdf') {
+        await generateConsultationPDF(patientData, [], mappedReport, analysisResult.imageUrl);
+      } else if (type === 'word') {
+        await generateConsultationWord(patientData, [], mappedReport);
+      } else {
+        saveIridologyAnalysis(analysisResult);
+        speakText(t.savedSuccess);
+      }
+      
       setIsSaving(null);
-      speakText(`${type.toUpperCase()} salvo com sucesso.`);
-    }, 2000);
+      if (type !== 'cloud') {
+        speakText(`${type.toUpperCase()} ${t.savedSuccess}`);
+      }
+    } catch (error) {
+      console.error(`Error in handleSave (${type}):`, error);
+      setIsSaving(null);
+      speakText(t.errorSaving);
+    }
   };
 
   return (
     <div className="space-y-8 pb-24 animate-fadeIn">
       <header className="flex justify-between items-center">
         <div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tighter uppercase italic">Iridologia Computacional</h2>
-          <p className="text-slate-500 font-medium italic">Análise de biocampo através do mapeamento da íris.</p>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tighter uppercase italic">{t.iridologyTitle}</h2>
+          <p className="text-slate-500 font-medium italic">{t.iridologySubtitle}</p>
         </div>
         <div className="bg-blue-600 text-white px-6 py-2 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-200">
-          Módulo NSO-Vision
+          {t.nsoVisionModule}
         </div>
       </header>
 
@@ -170,14 +214,14 @@ export const IridologyModule: React.FC = () => {
               <div className="text-center space-y-8 animate-fadeIn">
                 <div className="w-48 h-48 bg-blue-50 rounded-[4rem] flex items-center justify-center text-8xl shadow-inner mx-auto border-2 border-blue-100">👁️</div>
                 <div className="space-y-2">
-                  <h3 className="text-2xl font-black text-slate-900 uppercase">Captura da Íris</h3>
-                  <p className="text-slate-400 text-xs font-black uppercase tracking-widest max-w-xs mx-auto">Posicione a câmera próxima ao olho em ambiente bem iluminado.</p>
+                  <h3 className="text-2xl font-black text-slate-900 uppercase">{t.irisCapture}</h3>
+                  <p className="text-slate-400 text-xs font-black uppercase tracking-widest max-w-xs mx-auto">{t.irisCaptureInstruction}</p>
                 </div>
                 <button 
                   onClick={startCamera}
                   className="bg-blue-600 text-white px-12 py-5 rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all active:scale-95 flex items-center gap-3 mx-auto"
                 >
-                  <Camera size={18} /> Abrir Scanner
+                  <Camera size={18} /> {t.openScanner}
                 </button>
               </div>
             ) : (
@@ -196,7 +240,7 @@ export const IridologyModule: React.FC = () => {
                     onClick={stopCamera}
                     className="bg-white/10 backdrop-blur-md text-white px-6 py-3 rounded-2xl font-black text-[10px] uppercase border border-white/20"
                   >
-                    Cancelar
+                    {t.cancel}
                   </button>
                   <button 
                     onClick={captureImage}
@@ -214,7 +258,7 @@ export const IridologyModule: React.FC = () => {
           <div className="flex-1 flex flex-col lg:flex-row p-8 gap-10 animate-fadeIn">
             <div className="lg:w-1/2 space-y-6">
               <div className="relative aspect-square rounded-[3rem] overflow-hidden shadow-2xl border-8 border-white group">
-                <img src={capturedImage} className="w-full h-full object-cover" alt="Íris Capturada" />
+                <img src={capturedImage} className="w-full h-full object-cover" alt={t.irisCapture} />
                 
                 {/* Interactive Map Overlay */}
                 <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full pointer-events-none">
@@ -242,15 +286,15 @@ export const IridologyModule: React.FC = () => {
               </div>
               <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100">
                 <p className="text-[10px] font-black text-blue-800 uppercase tracking-widest mb-2 flex items-center gap-2">
-                  <AlertCircle size={14} /> Instrução de Mapeamento
+                  <AlertCircle size={14} /> {t.mappingInstructionTitle}
                 </p>
-                <p className="text-xs text-blue-600 font-medium italic">Clique nos pontos numerados no mapa para marcar zonas com alterações visíveis (manchas, fibras ou anéis).</p>
+                <p className="text-xs text-blue-600 font-medium italic">{t.mappingInstructionDesc}</p>
               </div>
             </div>
 
             <div className="lg:w-1/2 flex flex-col space-y-6">
               <div className="flex-1 bg-slate-50 rounded-[2.5rem] p-8 border border-slate-100 overflow-y-auto custom-scrollbar">
-                <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6 border-b pb-4">Zonas de Análise</h4>
+                <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6 border-b pb-4">{t.analysisZones}</h4>
                 <div className="grid grid-cols-1 gap-3">
                   {zones.map(z => (
                     <div 
@@ -271,7 +315,7 @@ export const IridologyModule: React.FC = () => {
                                   onClick={() => updateSeverity(z.id, s)}
                                   className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full border ${z.severity === s ? 'bg-red-100 border-red-300 text-red-700' : 'bg-white border-slate-200 text-slate-400'}`}
                                 >
-                                  {s === 'light' ? 'Leve' : s === 'moderate' ? 'Mod.' : 'Int.'}
+                                  {s === 'light' ? t.light : s === 'moderate' ? t.moderate : t.intense}
                                 </button>
                               ))}
                             </div>
@@ -294,7 +338,7 @@ export const IridologyModule: React.FC = () => {
                   onClick={() => setStep('capture')}
                   className="flex-1 bg-slate-100 text-slate-500 py-5 rounded-3xl font-black text-[10px] uppercase tracking-widest"
                 >
-                  Recapturar
+                  {t.recapture}
                 </button>
                 <button 
                   onClick={runAIAnalysis}
@@ -302,7 +346,7 @@ export const IridologyModule: React.FC = () => {
                   className="flex-[2] bg-blue-600 text-white py-5 rounded-3xl font-black text-[10px] uppercase tracking-widest shadow-xl flex items-center justify-center gap-3"
                 >
                   {isAnalyzing ? <RefreshCw className="animate-spin" size={16} /> : <Sparkles size={16} />}
-                  {isAnalyzing ? 'Analisando...' : 'Processar com IA'}
+                  {isAnalyzing ? t.analyzing : t.processWithAI}
                 </button>
               </div>
             </div>
@@ -314,7 +358,7 @@ export const IridologyModule: React.FC = () => {
             <div className="flex flex-col md:flex-row gap-10">
               <div className="md:w-1/3">
                 <div className="relative aspect-square rounded-[3rem] overflow-hidden shadow-2xl border-8 border-white">
-                  <img src={analysisResult.imageUrl} className="w-full h-full object-cover" alt="Íris Analisada" />
+                  <img src={analysisResult.imageUrl} className="w-full h-full object-cover" alt={t.iridologyConclusion} />
                   <div className="absolute inset-0 bg-blue-600/10 mix-blend-overlay"></div>
                 </div>
               </div>
@@ -322,8 +366,8 @@ export const IridologyModule: React.FC = () => {
                 <div className="flex items-center gap-4">
                   <div className="w-16 h-16 bg-blue-600 text-white rounded-[1.5rem] flex items-center justify-center text-3xl shadow-xl">🧠</div>
                   <div>
-                    <h4 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Conclusão Iridológica</h4>
-                    <p className="text-blue-600 text-[10px] font-black uppercase tracking-widest">Análise NSO-Vision Intelligence</p>
+                    <h4 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">{t.iridologyConclusion}</h4>
+                    <p className="text-blue-600 text-[10px] font-black uppercase tracking-widest">{t.nsoVisionIntelligence}</p>
                   </div>
                 </div>
                 <div className="bg-blue-50 p-8 rounded-[2.5rem] border border-blue-100 relative">
@@ -333,7 +377,7 @@ export const IridologyModule: React.FC = () => {
                 <div className="flex flex-wrap gap-2">
                   {analysisResult.zones.filter(z => z.status === 'altered').map(z => (
                     <span key={z.id} className="bg-white border border-red-100 text-red-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm">
-                      ⚠️ {z.name}: {z.severity === 'light' ? 'Leve' : z.severity === 'moderate' ? 'Moderado' : 'Intenso'}
+                      ⚠️ {z.name}: {z.severity === 'light' ? t.light : z.severity === 'moderate' ? t.moderate : t.intense}
                     </span>
                   ))}
                 </div>
@@ -343,23 +387,23 @@ export const IridologyModule: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="bg-slate-900 text-white p-10 rounded-[3rem] shadow-2xl space-y-6 relative overflow-hidden">
                 <div className="relative z-10">
-                  <h5 className="text-emerald-400 text-[10px] font-black uppercase tracking-widest mb-4">Protocolo Sugerido</h5>
+                  <h5 className="text-emerald-400 text-[10px] font-black uppercase tracking-widest mb-4">{t.suggestedProtocol}</h5>
                   <h6 className="text-2xl font-black uppercase tracking-tight mb-2">{analysisResult.suggestedProtocol.therapy}</h6>
                   <p className="text-slate-400 text-sm leading-relaxed mb-8">{analysisResult.suggestedProtocol.instructions}</p>
                   <div className="flex justify-between items-center border-t border-white/10 pt-6">
                     <div className="text-center">
-                      <p className="text-[8px] font-black uppercase opacity-50">Sessões</p>
+                      <p className="text-[8px] font-black uppercase opacity-50">{t.sessions || 'Sessões'}</p>
                       <p className="text-xl font-black">{analysisResult.suggestedProtocol.sessions}</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-[8px] font-black uppercase opacity-50">Reavaliação</p>
+                      <p className="text-[8px] font-black uppercase opacity-50">{t.revaluation || 'Reavaliação'}</p>
                       <p className="text-xl font-black">{analysisResult.suggestedProtocol.revaluationDays}d</p>
                     </div>
                     <button 
                       onClick={() => setView('protocols')}
                       className="bg-white text-slate-900 px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-400 transition-all"
                     >
-                      Ver Detalhes
+                      {t.viewDetails}
                     </button>
                   </div>
                 </div>
@@ -370,9 +414,9 @@ export const IridologyModule: React.FC = () => {
                 <div className="space-y-4">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center text-xl">📄</div>
-                    <h5 className="text-sm font-black text-slate-900 uppercase tracking-widest">Relatório Clínico PDF</h5>
+                    <h5 className="text-sm font-black text-slate-900 uppercase tracking-widest">{t.clinicalReportPdf}</h5>
                   </div>
-                  <p className="text-slate-500 text-xs font-medium leading-relaxed">O relatório completo contendo o mapa iridológico, interpretação e protocolos foi gerado e salvo no histórico do paciente.</p>
+                  <p className="text-slate-500 text-xs font-medium leading-relaxed">{t.reportGeneratedDesc}</p>
                 </div>
                 <div className="flex flex-col gap-3">
                   <div className="flex gap-3">
@@ -405,15 +449,15 @@ export const IridologyModule: React.FC = () => {
                     onClick={() => setView('dashboard')}
                     className="w-full bg-blue-600 text-white py-5 rounded-3xl font-black text-[10px] uppercase tracking-widest shadow-lg flex items-center justify-center gap-2"
                   >
-                    <CheckCircle2 size={16} /> Finalizar Consulta
+                    <CheckCircle2 size={16} /> {t.finishConsultation}
                   </button>
                 </div>
               </div>
             </div>
 
             <div className="bg-amber-50 border border-amber-100 p-6 rounded-[2rem] text-center">
-              <p className="text-amber-800 text-[10px] font-black uppercase tracking-widest">⚠️ Aviso Legal Obrigatório</p>
-              <p className="text-amber-700 text-xs font-medium italic mt-1">Ferramenta complementar de avaliação integrativa. Não substitui diagnóstico médico.</p>
+              <p className="text-amber-800 text-[10px] font-black uppercase tracking-widest">⚠️ {t.legalDisclaimerTitle}</p>
+              <p className="text-amber-700 text-xs font-medium italic mt-1">{t.legalDisclaimerDesc}</p>
             </div>
           </div>
         )}

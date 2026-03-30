@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useMemo } from 'react';
-import { PatientData, AnalysisReport, Protocol, IridologyAnalysis } from '../types';
+import { PatientData, AnalysisReport, Protocol, IridologyAnalysis, ExamRequest } from '../types';
 import { useStore } from '../store/useStore';
 import { speakText } from '../services/tts';
 import { translations } from '../translations';
@@ -27,8 +27,14 @@ import {
   Play,
   Square,
   History,
-  Eye
+  Eye,
+  FileText,
+  Download,
+  FileDown,
+  RefreshCw
 } from 'lucide-react';
+import { generateConsultationPDF, generateConsultationWord } from '../services/documentGenerator';
+import { generateExamPDF, generateExamWord } from '../services/documentService';
 
 interface ClinicalHistoryProps {
   patientData: PatientData | null;
@@ -43,7 +49,48 @@ export const ClinicalHistory: React.FC<ClinicalHistoryProps> = ({ patientData, l
   const t = translations[language] || translations.pt;
   const [isSpeaking, setIsSpeaking] = useState<number | string | null>(null);
   const [groupBy, setGroupBy] = useState<GroupBy>('date');
+  const [isExporting, setIsExporting] = useState<string | null>(null);
   const audioRef = useRef<{ source: AudioBufferSourceNode, audioCtx: AudioContext } | null>(null);
+
+  const handleExport = async (report: any, format: 'pdf' | 'word') => {
+    if (!patientData) return;
+    const exportId = `${report.date}-${format}`;
+    setIsExporting(exportId);
+
+    try {
+      const isIridology = 'imageUrl' in report;
+      const isExamRequest = 'exams' in report;
+
+      if (isExamRequest) {
+        if (format === 'pdf') {
+          await generateExamPDF(patientData, report.exams);
+        } else {
+          await generateExamWord(patientData, report.exams);
+        }
+      } else {
+        // Map Iridology or AnalysisReport to the format expected by documentGenerator
+        const reportToExport: AnalysisReport = isIridology ? {
+          id: report.id,
+          date: report.date,
+          summary: report.interpretation,
+          findings: report.findings || [],
+          suggestedProtocols: [report.suggestedProtocol],
+          emergencyLevel: 'normal',
+          criticalAlert: false
+        } : report;
+
+        if (format === 'pdf') {
+          await generateConsultationPDF(patientData, [], reportToExport, isIridology ? report.imageUrl : null);
+        } else {
+          await generateConsultationWord(patientData, [], reportToExport);
+        }
+      }
+    } catch (error) {
+      console.error('Export error:', error);
+    } finally {
+      setIsExporting(null);
+    }
+  };
 
   const handleSpeak = async (text: string, id: number | string) => {
     if (isSpeaking === id) {
@@ -76,11 +123,12 @@ export const ClinicalHistory: React.FC<ClinicalHistoryProps> = ({ patientData, l
     return iridologyHistory.filter(h => h.patientId === patientData?.id);
   }, [iridologyHistory, patientData]);
 
-  const groupedHistory = useMemo((): Record<string, (AnalysisReport | IridologyAnalysis)[]> => {
-    if (!patientData?.consultationHistory && patientIridology.length === 0) return {};
+  const groupedHistory = useMemo((): Record<string, (AnalysisReport | IridologyAnalysis | ExamRequest)[]> => {
+    if (!patientData?.consultationHistory && patientIridology.length === 0 && (!patientData?.examRequests || patientData.examRequests.length === 0)) return {};
 
     const allHistory = [
       ...(patientData?.consultationHistory || []),
+      ...(patientData?.examRequests || []),
       ...patientIridology
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -90,7 +138,7 @@ export const ClinicalHistory: React.FC<ClinicalHistoryProps> = ({ patientData, l
         if (!acc[date]) acc[date] = [];
         acc[date].push(report);
         return acc;
-      }, {} as Record<string, (AnalysisReport | IridologyAnalysis)[]>);
+      }, {} as Record<string, (AnalysisReport | IridologyAnalysis | ExamRequest)[]>);
     } else {
       return allHistory.reduce((acc, report) => {
         if ('suggestedProtocols' in report) {
@@ -105,9 +153,13 @@ export const ClinicalHistory: React.FC<ClinicalHistoryProps> = ({ patientData, l
           const therapy = report.suggestedProtocol.therapy;
           if (!acc[therapy]) acc[therapy] = [];
           acc[therapy].push(report);
+        } else if ('exams' in report) {
+          const therapy = 'Requisição de Exames';
+          if (!acc[therapy]) acc[therapy] = [];
+          acc[therapy].push(report);
         }
         return acc;
-      }, {} as Record<string, (AnalysisReport | IridologyAnalysis)[]>);
+      }, {} as Record<string, (AnalysisReport | IridologyAnalysis | ExamRequest)[]>);
     }
   }, [patientData, patientIridology, groupBy]);
 
@@ -245,7 +297,7 @@ export const ClinicalHistory: React.FC<ClinicalHistoryProps> = ({ patientData, l
               </div>
             </div>
           ) : (
-            (Object.entries(groupedHistory) as [string, AnalysisReport[]][]).map(([groupName, reports], groupIdx) => (
+            (Object.entries(groupedHistory) as [string, (AnalysisReport | IridologyAnalysis | ExamRequest)[]][]).map(([groupName, reports], groupIdx) => (
               <div key={groupName} className="space-y-6">
                 <div className="flex items-center gap-4">
                   <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.3em] whitespace-nowrap">{groupName}</h3>
@@ -256,11 +308,29 @@ export const ClinicalHistory: React.FC<ClinicalHistoryProps> = ({ patientData, l
                 <div className="space-y-6">
                   {reports.map((report, idx) => {
                     const isIridology = 'imageUrl' in report;
-                    const summary = isIridology ? (report as any).interpretation : (report as AnalysisReport).summary;
+                    const isExamRequest = 'exams' in report;
+                    
+                    let summary = '';
+                    if (isIridology) summary = (report as any).interpretation;
+                    else if (isExamRequest) summary = (report as ExamRequest).exams.join(', ');
+                    else summary = (report as AnalysisReport).summary;
+
                     const date = new Date(report.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
-                    const title = isIridology ? 'ANÁLISE IRIDOLÓGICA' : `${(report as AnalysisReport).emergencyLevel.toUpperCase()} PRIORIDADE`;
-                    const icon = isIridology ? <Eye size={28} /> : (report as AnalysisReport).criticalAlert ? <AlertCircle size={28} /> : <Activity size={28} />;
-                    const colorClass = isIridology ? 'bg-blue-50 text-blue-600' : (report as AnalysisReport).criticalAlert ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-600';
+                    
+                    let title = '';
+                    if (isIridology) title = 'ANÁLISE IRIDOLÓGICA';
+                    else if (isExamRequest) title = 'REQUISIÇÃO DE EXAMES';
+                    else title = `${(report as AnalysisReport).emergencyLevel.toUpperCase()} PRIORIDADE`;
+
+                    let icon = null;
+                    if (isIridology) icon = <Eye size={28} />;
+                    else if (isExamRequest) icon = <FileText size={28} />;
+                    else icon = (report as AnalysisReport).criticalAlert ? <AlertCircle size={28} /> : <Activity size={28} />;
+
+                    let colorClass = '';
+                    if (isIridology) colorClass = 'bg-blue-50 text-blue-600';
+                    else if (isExamRequest) colorClass = 'bg-amber-50 text-amber-600';
+                    else colorClass = (report as AnalysisReport).criticalAlert ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-600';
 
                     return (
                       <motion.div
@@ -280,11 +350,14 @@ export const ClinicalHistory: React.FC<ClinicalHistoryProps> = ({ patientData, l
                                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                                   {date}
                                 </span>
-                                {!isIridology && (report as AnalysisReport).criticalAlert && (
+                                {!isIridology && !isExamRequest && (report as AnalysisReport).criticalAlert && (
                                   <span className="bg-red-500 text-white px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-tighter">Crítico</span>
                                 )}
                                 {isIridology && (
                                   <span className="bg-blue-500 text-white px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-tighter">NSO Vision</span>
+                                )}
+                                {isExamRequest && (
+                                  <span className="bg-amber-500 text-white px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-tighter">Laboratorial</span>
                                 )}
                               </div>
                               <h4 className="text-xl font-black text-slate-900 uppercase tracking-tighter leading-tight">
@@ -296,22 +369,44 @@ export const ClinicalHistory: React.FC<ClinicalHistoryProps> = ({ patientData, l
                             </div>
                           </div>
 
-                          <div className="flex gap-3 w-full md:w-auto">
+                          <div className="flex flex-wrap gap-3 w-full md:w-auto">
                             <button 
                               onClick={() => handleSpeak(summary, `${groupName}-${idx}`)}
                               className={`p-4 rounded-2xl transition-all shadow-lg flex items-center justify-center gap-2 flex-1 md:flex-none ${isSpeaking === `${groupName}-${idx}` ? 'bg-red-500 text-white animate-pulse' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                              title="Ouvir Resumo"
                             >
                               {isSpeaking === `${groupName}-${idx}` ? <Square size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
                             </button>
+                            
+                            <button 
+                              onClick={() => handleExport(report, 'pdf')}
+                              disabled={isExporting !== null}
+                              className="p-4 bg-slate-100 text-slate-600 rounded-2xl hover:bg-emerald-50 hover:text-emerald-600 transition-all shadow-lg flex items-center justify-center gap-2 flex-1 md:flex-none disabled:opacity-50"
+                              title="Exportar PDF"
+                            >
+                              {isExporting === `${report.date}-pdf` ? <RefreshCw className="animate-spin" size={18} /> : <Download size={18} />}
+                            </button>
+
+                            <button 
+                              onClick={() => handleExport(report, 'word')}
+                              disabled={isExporting !== null}
+                              className="p-4 bg-slate-100 text-slate-600 rounded-2xl hover:bg-blue-50 hover:text-blue-600 transition-all shadow-lg flex items-center justify-center gap-2 flex-1 md:flex-none disabled:opacity-50"
+                              title="Exportar Word"
+                            >
+                              {isExporting === `${report.date}-word` ? <RefreshCw className="animate-spin" size={18} /> : <FileDown size={18} />}
+                            </button>
+
                             <button 
                               onClick={() => {
                                 if (isIridology) {
                                   // Handle iridology selection if needed
+                                } else if (isExamRequest) {
+                                  // Handle exam request selection if needed
                                 } else {
                                   onSelectReport?.(report as AnalysisReport);
                                 }
                               }}
-                              className={`${isIridology ? 'bg-blue-600' : 'bg-emerald-600'} text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:opacity-90 transition-all flex items-center justify-center gap-3 flex-[2] md:flex-none`}
+                              className={`${isIridology ? 'bg-blue-600' : isExamRequest ? 'bg-amber-600' : 'bg-emerald-600'} text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:opacity-90 transition-all flex items-center justify-center gap-3 flex-[2] md:flex-none`}
                             >
                               <ChevronRight size={16} /> Ver Detalhes
                             </button>
@@ -324,6 +419,16 @@ export const ClinicalHistory: React.FC<ClinicalHistoryProps> = ({ patientData, l
                               <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
                               <span className="text-[9px] font-black text-blue-700 uppercase tracking-widest">{(report as any).suggestedProtocol.therapy}</span>
                             </div>
+                          ) : isExamRequest ? (
+                            (report as ExamRequest).exams.map((e, ei) => (
+                              <div 
+                                key={ei} 
+                                className="bg-amber-50 border border-amber-100 px-4 py-2 rounded-xl flex items-center gap-2 group/tag hover:bg-amber-100 transition-colors"
+                              >
+                                <div className="w-1.5 h-1.5 bg-amber-500 rounded-full"></div>
+                                <span className="text-[9px] font-black text-amber-700 uppercase tracking-widest">{e}</span>
+                              </div>
+                            ))
                           ) : (
                             (report as AnalysisReport).suggestedProtocols.map((p, pi) => (
                               <div 

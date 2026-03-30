@@ -3,11 +3,20 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store/useStore';
 import { FrequencyProtocol } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Activity, Save, Trash2, Play, Square as SquareIcon, Zap, Info, Clock, Plus, X, Layers } from 'lucide-react';
+import { Activity, Save, Trash2, Play, Square as SquareIcon, Zap, Info, Clock, Plus, X, Layers, Search, Loader2, Sparkles, FileDown, Download } from 'lucide-react';
+import { getGeminiAI, withRetry } from '../services/gemini';
+import { Type } from "@google/genai";
+import { generateFrequencyPDF, generateFrequencyWord } from '../services/documentGenerator';
 
 export const FrequencyGenerator: React.FC = () => {
-  const { saveFrequencyProtocol, frequencyProtocols, deleteFrequencyProtocol } = useStore();
-  const [activeTab, setActiveTab] = useState<'individual' | 'mixtures'>('individual');
+  const { saveFrequencyProtocol, frequencyProtocols, deleteFrequencyProtocol, patientData } = useStore();
+  const [activeTab, setActiveTab] = useState<'individual' | 'mixtures' | 'search'>('individual');
+  const [isExporting, setIsExporting] = useState<string | null>(null);
+  
+  // Search State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<{ name: string, frequency: number, waveType: string, description: string }[]>([]);
   
   // Individual State
   const [name, setName] = useState('');
@@ -21,12 +30,14 @@ export const FrequencyGenerator: React.FC = () => {
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   
   // Mixture State
+  const [mixtureName, setMixtureName] = useState('');
   const [selectedForMixture, setSelectedForMixture] = useState<FrequencyProtocol[]>([]);
   const [manualFreq, setManualFreq] = useState<string>('');
   const [manualWave, setManualWave] = useState<'sine' | 'square' | 'sawtooth' | 'triangle'>('sine');
   
   const [isSaving, setIsSaving] = useState(false);
   const [isPlaying, setIsPlaying] = useState<string | null>(null);
+  const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const activeOscillators = useRef<Map<string, { osc: OscillatorNode, gain: GainNode }>>(new Map());
@@ -50,7 +61,7 @@ export const FrequencyGenerator: React.FC = () => {
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
   };
 
-  const toggleFrequency = async (id: string, freq: number, type: any) => {
+  const toggleFrequency = async (id: string, freq: number, type: any, mixtureFrequencies?: any[]) => {
     if (isPlaying === id) {
       stopAllFrequencies();
       return;
@@ -67,21 +78,40 @@ export const FrequencyGenerator: React.FC = () => {
       await ctx.resume();
     }
 
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
+    if (mixtureFrequencies && mixtureFrequencies.length > 0) {
+      mixtureFrequencies.forEach((f) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
 
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+        osc.type = f.waveType as any;
+        osc.frequency.setValueAtTime(f.frequency, ctx.currentTime);
+        
+        gain.gain.setValueAtTime(0, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.05, ctx.currentTime + 0.1);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start();
+        activeOscillators.current.set(`${id}-${f.id}`, { osc, gain });
+      });
+    } else {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.1, ctx.currentTime + 0.1);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start();
+      activeOscillators.current.set(id, { osc, gain });
+    }
     
-    gain.gain.setValueAtTime(0, ctx.currentTime);
-    gain.gain.linearRampToValueAtTime(0.1, ctx.currentTime + 0.1);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.start();
-    
-    activeOscillators.current.set(id, { osc, gain });
     setIsPlaying(id);
 
     // Start timer if set
@@ -181,6 +211,139 @@ export const FrequencyGenerator: React.FC = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const handleAutoGenerate = async () => {
+    if (!patientData) {
+      alert("Selecione um paciente primeiro.");
+      return;
+    }
+    
+    setIsAutoGenerating(true);
+    setActiveTab('search');
+    setSearchQuery(patientData.complaints);
+    
+    const { lastExamAnalysis } = useStore.getState();
+
+    try {
+      const ai = getGeminiAI();
+      let prompt = `Sugira frequências de bio-ressonância (Rife, Solfeggio, etc.) para o paciente ${patientData.name} com as seguintes queixas: "${patientData.complaints}". 
+        Histórico: ${patientData.history}.`;
+      
+      if (lastExamAnalysis) {
+        prompt += `\nConsidere também os achados do último diagnóstico: ${lastExamAnalysis.summary}. 
+        Achados específicos: ${lastExamAnalysis.findings.join(', ')}.`;
+      }
+
+      prompt += `\nRetorne uma lista de até 5 frequências relevantes.
+        Para cada frequência, forneça: nome, valor em Hz (número), tipo de onda (sine, square, sawtooth ou triangle) e uma breve descrição terapêutica.`;
+
+      const response = await withRetry(() => ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                frequency: { type: Type.NUMBER },
+                waveType: { type: Type.STRING, description: "Deve ser um destes: sine, square, sawtooth, triangle" },
+                description: { type: Type.STRING }
+              },
+              required: ["name", "frequency", "waveType", "description"]
+            }
+          }
+        }
+      }));
+      
+      const results = JSON.parse(response.text || "[]");
+      setSearchResults(results);
+    } catch (error) {
+      console.error("Erro na geração automática de frequências:", error);
+      alert("Erro ao gerar frequências automáticas. Tente novamente.");
+    } finally {
+      setIsAutoGenerating(false);
+    }
+  };
+
+  const saveMixture = () => {
+    if (!mixtureName) {
+      alert("Dê um nome para a mistura.");
+      return;
+    }
+    if (selectedForMixture.length === 0) {
+      alert("Adicione frequências à mistura antes de salvar.");
+      return;
+    }
+
+    setIsSaving(true);
+    const newProtocol: FrequencyProtocol = {
+      id: crypto.randomUUID(),
+      name: mixtureName,
+      frequency: 0, // Not used for mixtures
+      waveType: 'sine', // Not used for mixtures
+      description: `Mistura de ${selectedForMixture.length} frequências.`,
+      createdAt: new Date().toISOString(),
+      isMixture: true,
+      mixtureFrequencies: selectedForMixture.map(p => ({
+        id: p.id,
+        name: p.name,
+        frequency: p.frequency,
+        waveType: p.waveType
+      }))
+    };
+
+    setTimeout(() => {
+      saveFrequencyProtocol(newProtocol);
+      setMixtureName('');
+      setSelectedForMixture([]);
+      setIsSaving(false);
+      alert("Mistura salva com sucesso!");
+    }, 600);
+  };
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    
+    setIsSearching(true);
+    setSearchResults([]);
+    
+    try {
+      const ai = getGeminiAI();
+      const response = await withRetry(() => ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `Sugira frequências de bio-ressonância (Rife, Solfeggio, etc.) para a seguinte patologia ou condição: "${searchQuery}". 
+        Retorne uma lista de até 5 frequências relevantes.
+        Para cada frequência, forneça: nome, valor em Hz (número), tipo de onda (sine, square, sawtooth ou triangle) e uma breve descrição terapêutica.`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                frequency: { type: Type.NUMBER },
+                waveType: { type: Type.STRING, description: "Deve ser um destes: sine, square, sawtooth, triangle" },
+                description: { type: Type.STRING }
+              },
+              required: ["name", "frequency", "waveType", "description"]
+            }
+          }
+        }
+      }));
+      
+      const results = JSON.parse(response.text || "[]");
+      setSearchResults(results);
+    } catch (error) {
+      console.error("Erro na pesquisa de frequências:", error);
+      alert("Erro ao pesquisar frequências. Tente novamente.");
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
   const handleSave = () => {
     if (!name || !frequency) {
       alert('Por favor, preencha o nome e a frequência.');
@@ -246,28 +409,149 @@ export const FrequencyGenerator: React.FC = () => {
         </div>
       </header>
 
-      {/* Tabs */}
-      <div className="flex gap-4 border-b border-slate-200 pb-4">
-        <button 
-          onClick={() => setActiveTab('individual')}
-          className={`px-8 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-2 ${activeTab === 'individual' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white text-slate-400 hover:bg-slate-50'}`}
-        >
-          <Zap size={16} />
-          Frequência Individual
-        </button>
-        <button 
-          onClick={() => setActiveTab('mixtures')}
-          className={`px-8 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-2 ${activeTab === 'mixtures' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white text-slate-400 hover:bg-slate-50'}`}
-        >
-          <Layers size={16} />
-          Misturas de Frequências
-        </button>
-      </div>
+        {/* Tabs */}
+        <div className="flex flex-wrap gap-4 border-b border-slate-200 pb-4">
+          <button 
+            onClick={() => setActiveTab('individual')}
+            className={`px-8 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-2 ${activeTab === 'individual' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white text-slate-400 hover:bg-slate-50'}`}
+          >
+            <Zap size={16} />
+            Frequência Individual
+          </button>
+          <button 
+            onClick={() => setActiveTab('mixtures')}
+            className={`px-8 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-2 ${activeTab === 'mixtures' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white text-slate-400 hover:bg-slate-50'}`}
+          >
+            <Layers size={16} />
+            Misturas de Frequências
+          </button>
+          <button 
+            onClick={() => setActiveTab('search')}
+            className={`px-8 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-2 ${activeTab === 'search' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white text-slate-400 hover:bg-slate-50'}`}
+          >
+            <Search size={16} />
+            Pesquisa de Patologias
+          </button>
+          {patientData && (
+            <button 
+              onClick={handleAutoGenerate}
+              disabled={isAutoGenerating}
+              className="px-8 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-blue-500 text-white shadow-lg hover:scale-105 disabled:opacity-50"
+            >
+              {isAutoGenerating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+              Gerar para Paciente
+            </button>
+          )}
+        </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
         {/* Form Section */}
         <div className="lg:col-span-1 space-y-8">
-          {activeTab === 'individual' ? (
+          {activeTab === 'search' ? (
+            <div className="bg-white p-8 rounded-[3rem] shadow-2xl border border-slate-100 space-y-6">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block px-2">Pesquisar Patologia</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                      placeholder="Ex: Insônia, Gastrite..."
+                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all font-bold outline-none"
+                    />
+                    <button
+                      onClick={handleSearch}
+                      disabled={isSearching}
+                      className="bg-emerald-600 text-white p-4 rounded-2xl hover:bg-emerald-700 transition-all shadow-lg disabled:opacity-50"
+                    >
+                      {isSearching ? <Loader2 size={20} className="animate-spin" /> : <Search size={20} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-5 bg-emerald-50 rounded-3xl border border-emerald-100 flex gap-3 items-start">
+                <Info size={18} className="text-emerald-600 shrink-0 mt-0.5" />
+                <p className="text-[9px] text-emerald-800 font-medium leading-relaxed italic">
+                  Utilize a inteligência artificial para encontrar frequências específicas baseadas em patologias. Você pode testar, salvar ou adicionar à sua mistura.
+                </p>
+              </div>
+
+              <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                {searchResults.length > 0 ? (
+                  searchResults.map((res, idx) => (
+                    <div key={idx} className="bg-slate-50 p-5 rounded-3xl border border-slate-100 space-y-3 group hover:border-emerald-200 transition-all">
+                      <div className="flex justify-between items-start">
+                        <div className="space-y-1">
+                          <p className="text-xs font-black text-slate-900 uppercase tracking-tight">{res.name}</p>
+                          <p className="text-[10px] font-bold text-emerald-600">{res.frequency} Hz • {res.waveType}</p>
+                        </div>
+                        <div className="flex gap-1">
+                          <button 
+                            onClick={() => toggleFrequency(`search-${idx}`, res.frequency, res.waveType)}
+                            className={`p-2 rounded-xl transition-all ${
+                              isPlaying === `search-${idx}` 
+                                ? 'bg-red-500 text-white animate-pulse' 
+                                : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                            }`}
+                            title="Executar"
+                          >
+                            {isPlaying === `search-${idx}` ? <SquareIcon size={14} /> : <Play size={14} />}
+                          </button>
+                          <button 
+                            onClick={() => {
+                              const newProtocol: FrequencyProtocol = {
+                                id: crypto.randomUUID(),
+                                name: res.name,
+                                frequency: res.frequency,
+                                waveType: res.waveType as any,
+                                description: res.description,
+                                createdAt: new Date().toISOString(),
+                              };
+                              saveFrequencyProtocol(newProtocol);
+                            }}
+                            className="p-2 bg-slate-900 text-white rounded-xl hover:bg-emerald-600 transition-all"
+                            title="Salvar Protocolo"
+                          >
+                            <Save size={14} />
+                          </button>
+                          <button 
+                            onClick={() => {
+                              const protocol: FrequencyProtocol = {
+                                id: `search-mix-${idx}`,
+                                name: res.name,
+                                frequency: res.frequency,
+                                waveType: res.waveType as any,
+                                description: res.description,
+                                createdAt: new Date().toISOString(),
+                              };
+                              if (!selectedForMixture.find(p => p.frequency === protocol.frequency)) {
+                                setSelectedForMixture(prev => [...prev, protocol]);
+                              }
+                            }}
+                            className="p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-all"
+                            title="Adicionar à Mistura"
+                          >
+                            <Plus size={14} />
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-[9px] text-slate-500 font-medium leading-relaxed italic line-clamp-2">
+                        {res.description}
+                      </p>
+                    </div>
+                  ))
+                ) : !isSearching && searchQuery && (
+                  <div className="text-center py-10 opacity-40">
+                    <Search size={32} className="mx-auto mb-2" />
+                    <p className="text-[10px] font-black uppercase tracking-widest">Nenhum resultado encontrado</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : activeTab === 'individual' ? (
             <div className="bg-white p-8 rounded-[3rem] shadow-2xl border border-slate-100 space-y-6">
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -368,18 +652,30 @@ export const FrequencyGenerator: React.FC = () => {
           ) : (
             <div className="bg-white p-8 rounded-[3rem] shadow-2xl border border-slate-100 space-y-6">
               <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block px-2">Nome da Mistura</label>
+                  <input
+                    type="text"
+                    value={mixtureName}
+                    onChange={(e) => setMixtureName(e.target.value)}
+                    placeholder="Ex: Protocolo Detox"
+                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all font-bold outline-none"
+                  />
+                </div>
+
                 <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest block px-2">Adicionar Frequência Manual</h4>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
                     <input
                       ref={manualFreqRef}
                       type="number"
+                      inputMode="decimal"
                       value={manualFreq}
                       onChange={(e) => setManualFreq(e.target.value)}
                       placeholder="Frequência"
-                      className="w-full p-3 bg-slate-50 rounded-xl border border-slate-100 font-bold text-xs outline-none pr-8"
+                      className="w-full p-4 bg-slate-50 rounded-xl border border-slate-100 font-bold text-sm outline-none pr-10"
                     />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-400">Hz</span>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400">Hz</span>
                   </div>
                   <select 
                     value={manualWave}
@@ -435,27 +731,43 @@ export const FrequencyGenerator: React.FC = () => {
                 </div>
               </div>
 
-              <button
-                onClick={toggleMixture}
-                disabled={selectedForMixture.length === 0}
-                className={`w-full py-6 rounded-[2rem] font-black uppercase tracking-widest shadow-xl transition-all flex items-center justify-center gap-3 disabled:opacity-30 ${
-                  isPlaying === 'mixture'
-                    ? 'bg-red-500 text-white animate-pulse'
-                    : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200'
-                }`}
-              >
-                {isPlaying === 'mixture' ? (
-                  <>
-                    <SquareIcon size={20} />
-                    Parar Mistura
-                  </>
-                ) : (
-                  <>
-                    <Play size={20} />
-                    Executar Mistura
-                  </>
-                )}
-              </button>
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={toggleMixture}
+                  disabled={selectedForMixture.length === 0}
+                  className={`w-full py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all flex items-center justify-center gap-3 disabled:opacity-30 ${
+                    isPlaying === 'mixture'
+                      ? 'bg-red-500 text-white animate-pulse'
+                      : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200'
+                  }`}
+                >
+                  {isPlaying === 'mixture' ? (
+                    <>
+                      <SquareIcon size={18} />
+                      Parar
+                    </>
+                  ) : (
+                    <>
+                      <Play size={18} />
+                      Executar
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={saveMixture}
+                  disabled={isSaving || selectedForMixture.length === 0}
+                  className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-emerald-600 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                >
+                  {isSaving ? (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <>
+                      <Save size={18} />
+                      Salvar
+                    </>
+                  )}
+                </button>
+              </div>
               
               <div className="p-5 bg-blue-50 rounded-3xl border border-blue-100 flex gap-3 items-start">
                 <Info size={18} className="text-blue-600 shrink-0 mt-0.5" />
@@ -508,7 +820,9 @@ export const FrequencyGenerator: React.FC = () => {
                           <h4 className="text-lg font-black text-slate-900 uppercase tracking-tighter leading-tight">{protocol.name}</h4>
                           <div className="flex items-center gap-2">
                             <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-                            <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">{protocol.frequency} Hz</span>
+                            <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">
+                              {protocol.isMixture ? `${protocol.mixtureFrequencies?.length} Frequências` : `${protocol.frequency} Hz`}
+                            </span>
                           </div>
                         </div>
                         <button 
@@ -521,7 +835,7 @@ export const FrequencyGenerator: React.FC = () => {
 
                       <div className="flex gap-2">
                         <span className="bg-slate-50 px-3 py-1 rounded-lg text-[8px] font-black text-slate-500 uppercase tracking-widest border border-slate-100">
-                          Onda: {protocol.waveType}
+                          {protocol.isMixture ? 'Tipo: Mistura' : `Onda: ${protocol.waveType}`}
                         </span>
                         <span className="bg-slate-50 px-3 py-1 rounded-lg text-[8px] font-black text-slate-500 uppercase tracking-widest border border-slate-100">
                           {new Date(protocol.createdAt).toLocaleDateString('pt-BR')}
@@ -534,9 +848,9 @@ export const FrequencyGenerator: React.FC = () => {
                         </p>
                       )}
 
-                      <div className="pt-4 flex gap-3">
+                      <div className="pt-4 flex gap-2">
                         <button 
-                          onClick={() => toggleFrequency(protocol.id, protocol.frequency, protocol.waveType)}
+                          onClick={() => toggleFrequency(protocol.id, protocol.frequency, protocol.waveType, protocol.mixtureFrequencies)}
                           className={`flex-1 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg transition-all flex items-center justify-center gap-2 ${
                             isPlaying === protocol.id 
                               ? 'bg-red-500 text-white animate-pulse' 
@@ -555,6 +869,34 @@ export const FrequencyGenerator: React.FC = () => {
                             </>
                           )}
                         </button>
+                        
+                        <div className="flex gap-1">
+                          <button 
+                            onClick={async () => {
+                              setIsExporting(protocol.id + '-pdf');
+                              await generateFrequencyPDF(patientData, protocol);
+                              setIsExporting(null);
+                            }}
+                            disabled={isExporting !== null}
+                            className="p-3 bg-slate-50 text-slate-400 rounded-xl hover:bg-emerald-50 hover:text-emerald-600 transition-all disabled:opacity-50"
+                            title="Exportar PDF"
+                          >
+                            {isExporting === protocol.id + '-pdf' ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                          </button>
+                          <button 
+                            onClick={async () => {
+                              setIsExporting(protocol.id + '-word');
+                              await generateFrequencyWord(patientData, protocol);
+                              setIsExporting(null);
+                            }}
+                            disabled={isExporting !== null}
+                            className="p-3 bg-slate-50 text-slate-400 rounded-xl hover:bg-blue-50 hover:text-blue-600 transition-all disabled:opacity-50"
+                            title="Exportar Word"
+                          >
+                            {isExporting === protocol.id + '-word' ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
+                          </button>
+                        </div>
+
                         {activeTab === 'mixtures' && (
                           <button 
                             onClick={() => {

@@ -1,7 +1,8 @@
-
 import { GoogleGenAI, Modality } from "@google/genai";
 
-function decode(base64: string) {
+const API_KEY = process.env.GEMINI_API_KEY || '';
+
+function decodeBase64(base64: string) {
   const binaryString = atob(base64);
   const len = binaryString.length;
   const bytes = new Uint8Array(len);
@@ -30,41 +31,40 @@ async function decodeAudioData(
   return buffer;
 }
 
-export async function speakText(text: string, instruction: string = "Leia este texto com calma e clareza:") {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
-  
+export const narrateText = async (text: string, voice: 'Kore' | 'Puck' | 'Charon' | 'Fenrir' | 'Zephyr' = 'Kore') => {
+  if (!text) return;
+
   try {
+    const ai = new GoogleGenAI({ apiKey: API_KEY });
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text: `${instruction} ${text}` }] }],
+      contents: [{ parts: [{ text: `Narrate the following content clearly: ${text}` }] }],
       config: {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' }, // Kore é excelente para Português
+            prebuiltVoiceConfig: { voiceName: voice },
           },
         },
       },
     });
 
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!base64Audio) return null;
-
-    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-    const audioBuffer = await decodeAudioData(decode(base64Audio), audioCtx, 24000, 1);
-    
-    const source = audioCtx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(audioCtx.destination);
-    
-    return { source, audioCtx };
+    if (base64Audio) {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      const audioBuffer = await decodeAudioData(decodeBase64(base64Audio), audioCtx, 24000, 1);
+      
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioCtx.destination);
+      source.start();
+    }
   } catch (error) {
-    console.error("Erro no TTS:", error);
-    return null;
+    console.error("Narration error:", error);
   }
-}
+};
 
-export async function narrateProtocol(protocol: any) {
+export const narrateProtocol = async (protocol: any) => {
   let text = `Protocolo: ${protocol.title}. `;
   
   if (protocol.instructions) {
@@ -92,8 +92,5 @@ export async function narrateProtocol(protocol: any) {
     });
   }
 
-  const result = await speakText(text, "Narração do Protocolo Clínico:");
-  if (result) {
-    result.source.start();
-  }
-}
+  await narrateText(text);
+};

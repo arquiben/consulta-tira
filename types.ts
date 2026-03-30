@@ -30,7 +30,8 @@ export enum TherapyType {
   VITAMINAS_MINERAIS = 'Vitaminas & Minerais (Suplementação)',
   DIETA_ENERGETICA_EMOCIONAL = 'Dieta Energética & Emocional',
   ANALISE_FARMACOLOGICA = 'Análise de Receita & Fármacos',
-  IRIDOLOGIA = 'Iridologia Computacional NSO'
+  IRIDOLOGIA = 'Iridologia Computacional NSO',
+  QUANTUM_RESONANCE = 'Quantum Resonance Magnetic Analysis'
 }
 
 export enum UserRole {
@@ -46,6 +47,7 @@ export interface MedicalDevice {
   type: 'usb' | 'wifi' | 'bluetooth';
   status: 'available' | 'connecting' | 'connected';
   signalStrength?: number;
+  isQuantum?: boolean;
 }
 
 export interface AnatomicalMarker {
@@ -68,13 +70,24 @@ export interface PatientData {
   height: string;
   bmi: string;
   bloodPressure: string;
+  glucose?: string;
   address: string;
   phone: string;
   history: string;
   complaints: string;
   lastConsultation?: string;
+  nextRevaluation?: string;
   anatomicalMarkers?: AnatomicalMarker[];
   consultationHistory?: AnalysisReport[];
+  examRequests?: ExamRequest[];
+  chatHistory?: Message[];
+}
+
+export interface ExamRequest {
+  id: string;
+  date: string;
+  exams: string[];
+  notes?: string;
 }
 
 export interface ClinicSettings {
@@ -102,6 +115,13 @@ export interface HydroStep {
   amount: string;
 }
 
+export interface PrescriptionItem {
+  name: string;
+  quantity: string;
+  dosage: string;
+  days: number;
+}
+
 export interface Protocol {
   id: string;
   therapy: TherapyType | string;
@@ -119,6 +139,7 @@ export interface Protocol {
   conflictNMG?: string;
   revaluationDays: number;
   prescriptionItems?: string[];
+  prescriptions?: PrescriptionItem[];
   suggestedPharmaceuticals?: string[];
   suggestedPhytotherapeutics?: string[];
   suggestedSupplements?: string[];
@@ -129,12 +150,25 @@ export interface Protocol {
   isCustom?: boolean;
 }
 
+export interface ExamResult {
+  examName: string;
+  result: string;
+  date: string;
+  referenceRange?: string;
+}
+
 export interface AnalysisReport {
   date: string;
   summary: string;
   findings: string[];
   suggestedProtocols: Protocol[];
   suggestedExams: string[];
+  examResults?: ExamResult[];
+  images?: string[];
+  diagnosedPathologies?: string[];
+  revaluationDate?: string;
+  revaluationNotes?: string;
+  comparisonWithPrevious?: string;
   deviceDataConclusion?: string;
   disclaimer: string;
   criticalAlert: boolean;
@@ -148,6 +182,8 @@ export interface FrequencyProtocol {
   waveType: 'sine' | 'square' | 'sawtooth' | 'triangle';
   description: string;
   createdAt: string;
+  isMixture?: boolean;
+  mixtureFrequencies?: { id: string; name: string; frequency: number; waveType: string }[];
 }
 
 export interface IridologyZone {

@@ -22,6 +22,13 @@ import { Library } from './components/Library';
 import { ClinicalHistory } from './components/ClinicalHistory';
 import { RecycleBin } from './components/RecycleBin';
 import { TutorialWizard } from './components/TutorialWizard';
+import { HardwareManager } from './components/HardwareManager';
+import { QuantumResonanceModule } from './components/QuantumResonanceModule';
+import { NsofisionNero } from './components/NsofisionNero';
+import { Physiotherapy } from './components/Physiotherapy';
+import { Massotherapy } from './components/Massotherapy';
+import { BloodPressureMonitor } from './components/BloodPressureMonitor';
+import { GlucoseMonitor } from './components/GlucoseMonitor';
 import { PatientData, AnalysisReport, ClinicSettings, UserRole, Protocol, LicenseType } from './types';
 import { translations } from './translations';
 
@@ -42,16 +49,43 @@ const App: React.FC = () => {
     customProtocols, setCustomProtocols,
     handleReportGenerated,
     handleAnalyzeNow,
+    generateAutomaticProtocol,
     selectReport,
     clearRecommendations,
     recommendedFrequencies,
     logout,
-    syncFromSupabase
+    syncFromSupabase,
+    connectedDevices,
+    addDevice,
+    updateDeviceStatus,
+    isAnalyzing
   } = useStore();
 
+  /* 
   useEffect(() => {
     syncFromSupabase();
   }, []);
+  */
+
+  const handleDetectDevice = async () => {
+    // USB detection disabled to repair app
+    /*
+    const { USBService } = await import('./services/usbService');
+    try {
+      const device = await USBService.requestDevice();
+      if (device) {
+        const medicalDevice = USBService.mapUSBDeviceToMedicalDevice(device);
+        addDevice(medicalDevice);
+        
+        updateDeviceStatus(medicalDevice.id, 'connecting');
+        const success = await USBService.connect(device);
+        updateDeviceStatus(medicalDevice.id, success ? 'connected' : 'available');
+      }
+    } catch (err) {
+      console.error('USB Detection failed:', err);
+    }
+    */
+  };
 
   const handleLogin = (pass: string, role: UserRole) => {
     if (role === UserRole.PATIENT) {
@@ -68,12 +102,28 @@ const App: React.FC = () => {
 
   const renderView = () => {
     switch (currentView) {
-      case 'dashboard': return <Dashboard setView={setView} patientData={patientData} examData={lastExamAnalysis} clinicSettings={clinicSettings} allPatients={allPatients} onSelectPatient={(id) => { setPatientData(allPatients.find(p => p.id === id) || null); clearRecommendations(); }} onLogout={logout} userRole={currentUserRole} recommendedCount={recommendedFrequencies.length} />;
+      case 'dashboard': return (
+        <Dashboard 
+          setView={setView} 
+          patientData={patientData} 
+          examData={lastExamAnalysis} 
+          clinicSettings={clinicSettings} 
+          allPatients={allPatients} 
+          onSelectPatient={(id) => { setPatientData(allPatients.find(p => p.id === id) || null); }} 
+          onLogout={logout} 
+          userRole={currentUserRole} 
+          recommendedCount={recommendedFrequencies.length} 
+          connectedDevices={connectedDevices}
+          onDetectDevice={handleDetectDevice}
+          onGenerateAutoProtocol={generateAutomaticProtocol}
+          isAnalyzing={isAnalyzing}
+        />
+      );
       case 'patient': return <PatientIntake patientData={patientData} setPatientData={savePatient} onAnalyzeNow={handleAnalyzeNow} />;
-      case 'consultation': return <Consultation patientData={patientData} onReportGenerated={handleReportGenerated} onReopenReport={() => setView('protocols')} hasReport={!!lastExamAnalysis} />;
+      case 'consultation': return <Consultation patientData={patientData} onReportGenerated={handleReportGenerated} onReopenReport={() => setView('protocols')} hasReport={!!lastExamAnalysis} examData={lastExamAnalysis} clinicSettings={clinicSettings} />;
       case 'exams': return <ExamAnalysis patientData={patientData} onAnalysisComplete={handleReportGenerated} />;
-      case 'mapping': return <AnatomicalMapper patientData={patientData} setPatientData={savePatient} language={clinicSettings.language || 'pt'} />;
-      case 'generator': return <AnatomicalGenerator patientData={patientData} />;
+      case 'mapping': return <AnatomicalMapper patientData={patientData} setPatientData={savePatient} language={clinicSettings.language || 'pt'} examData={lastExamAnalysis} />;
+      case 'generator': return <AnatomicalGenerator patientData={patientData} examData={lastExamAnalysis} />;
       case 'frequency': return <FrequencyGenerator />;
       case 'exam_request': return <MedicalExamRequest patientData={patientData} />;
       case 'protocols': return <ProtocolGenerator patientData={patientData} examData={lastExamAnalysis} onReportGenerated={handleReportGenerated} />;
@@ -89,6 +139,39 @@ const App: React.FC = () => {
       case 'history': return <ClinicalHistory patientData={patientData} language={clinicSettings.language || 'pt'} onSelectReport={selectReport} />;
       case 'settings': return <Settings settings={clinicSettings} setSettings={setClinicSettings} />;
       case 'iridology': return <IridologyModule />;
+      case 'hardware': return <HardwareManager />;
+      case 'quantum': return <QuantumResonanceModule />;
+      case 'nsofision': return <NsofisionNero />;
+      case 'physiotherapy': return <Physiotherapy />;
+      case 'massotherapy': return <Massotherapy />;
+      case 'blood_pressure': return (
+        <BloodPressureMonitor 
+          onSave={(data) => {
+            if (patientData) {
+              const updatedPatient = {
+                ...patientData,
+                bloodPressure: `${data.systolic}/${data.diastolic}`
+              };
+              savePatient(updatedPatient);
+              setPatientData(updatedPatient);
+            }
+          }} 
+        />
+      );
+      case 'glucose': return (
+        <GlucoseMonitor 
+          onSave={(data) => {
+            if (patientData) {
+              const updatedPatient = {
+                ...patientData,
+                glucose: `${data.glucose} ${data.unit}`
+              };
+              savePatient(updatedPatient);
+              setPatientData(updatedPatient);
+            }
+          }} 
+        />
+      );
       case 'help': return <HelpCenter />;
       case 'recycle': return <RecycleBin deletedPatients={deletedPatients} onRestore={() => {}} onPermanentDelete={() => {}} onEmptyBin={() => {}} language={clinicSettings.language || 'pt'} />;
       default: return <Dashboard setView={setView} patientData={patientData} clinicSettings={clinicSettings} allPatients={allPatients} onSelectPatient={() => {}} onLogout={logout} userRole={currentUserRole} />;

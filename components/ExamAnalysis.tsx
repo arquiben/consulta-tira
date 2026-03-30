@@ -3,21 +3,26 @@ import React, { useState, useRef, useEffect } from 'react';
 import { generateTherapyReport } from '../services/gemini';
 import { AnalysisReport, PatientData } from '../types';
 import { speakText } from '../services/tts';
-import { FileText, Download, Cloud, Share2, CheckCircle2, FileDown, Globe, RefreshCw } from 'lucide-react';
+import { FileText, Download, Cloud, Share2, CheckCircle2, FileDown, Globe, RefreshCw, Usb, Search, Zap, AlertCircle, Activity, ChevronRight, Volume2, Trash2, Sparkles } from 'lucide-react';
+import { useStore } from '../store/useStore';
+import { translations } from '../translations';
+import { generateConsultationPDF, generateConsultationWord } from '../services/documentGenerator';
 
 interface ExamAnalysisProps {
   patientData: PatientData | null;
   onAnalysisComplete?: (report: AnalysisReport) => void;
 }
 
-const UNIVERSAL_HARDWARE_CATALOG = [
-  { id: 'QRMA-V4', name: 'Quantum Resonance Magnetic Analyzer (4)', series: 'Series 4.0 Gold', version: 'v4.7.2', manufacturer: 'NSOFISION Tech', type: 'usb', appIcon: '🌀', dataModel: 'Análise de Ressonância Bio-Magnética' },
-  { id: 'NSO-Q-2026', name: 'Analisador Bio-Quântico NSO', series: 'Series X', version: 'v4.2 Gold', manufacturer: 'NSOFISION Industries', type: 'usb', appIcon: '🌌', dataModel: 'Telemetria de Frequências' },
-  { id: 'BIOMAG-PRO-7', name: 'Biomagnetômetro Digital Pro', series: 'Elite 7', version: 'v7.0.1', manufacturer: 'Quantum Labs', type: 'usb', appIcon: '🧲', dataModel: 'Fluxo Magnético' },
-  { id: 'IRIS-SCOPE-X', name: 'Iridoscópio Digital NSO-X', series: 'Vision Pro', version: 'v5.0', manufacturer: 'NSO Vision', type: 'usb', appIcon: '👁️', dataModel: 'Mapeamento de Íris' },
-];
-
 export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnalysisComplete }) => {
+  const { clinicSettings } = useStore();
+  const t = translations[clinicSettings.language || 'pt'] || translations.pt;
+
+  const UNIVERSAL_HARDWARE_CATALOG = [
+    { id: 'QRMA-V4', name: 'Quantum Resonance Magnetic Analyzer (4)', series: 'Series 4.0 Gold', version: 'v4.7.2', manufacturer: 'NSOFISION Tech', type: 'usb', appIcon: '🌀', dataModel: t.analyticalConclusion },
+    { id: 'NSO-Q-2026', name: 'Analisador Bio-Quântico NSO', series: 'Series X', version: 'v4.2 Gold', manufacturer: 'NSOFISION Industries', type: 'usb', appIcon: '🌌', dataModel: t.telemetryMonitor },
+    { id: 'BIOMAG-PRO-7', name: 'Biomagnetômetro Digital Pro', series: 'Elite 7', version: 'v7.0.1', manufacturer: 'Quantum Labs', type: 'usb', appIcon: '🧲', dataModel: t.resonanceResults },
+    { id: 'IRIS-SCOPE-X', name: 'Iridoscópio Digital NSO-X', series: 'Vision Pro', version: 'v5.0', manufacturer: 'NSO Vision', type: 'usb', appIcon: '👁️', dataModel: t.iridologyTitle },
+  ];
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<AnalysisReport | null>(null);
@@ -52,7 +57,7 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
 
   const startAutoDiscovery = () => {
     setSyncStatus('searching');
-    speakText("Iniciando busca automática por hardware NSOFISION via protocolo USB Quântico.");
+    speakText(t.startingHardwareSearch || "Iniciando busca automática por hardware NSOFISION via protocolo USB Quântico.", t.ttsInstruction);
     
     setTimeout(() => {
       const randomDevice = UNIVERSAL_HARDWARE_CATALOG[Math.floor(Math.random() * UNIVERSAL_HARDWARE_CATALOG.length)];
@@ -63,16 +68,16 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
   const handleUSBPlugIn = (device: any) => {
     setSyncStatus('installing');
     setInstallationProgress(0);
-    setInstallationStep(`Sincronizando ${device.name}...`);
+    setInstallationStep(`${t.syncingSystem || 'Sincronizando'} ${device.name}...`);
     
-    speakText(`Hardware detectado: ${device.name}. Estabelecendo ponte de dados segura.`);
+    speakText(`${t.hardwareDetected || 'Hardware detectado'}: ${device.name}. ${t.connectionEstablished || 'Estabelecendo ponte de dados segura.'}`, t.ttsInstruction);
 
     const steps = [
-      "Mapeando Portas USB...",
-      "Sincronizando Frequências NSO...",
-      "Validando Criptografia de Dados...",
-      "Calibrando Sensores Bio-Magnéticos...",
-      "Sistema Pronto para Operação."
+      t.usbScanActive || "Mapeando Portas USB...",
+      t.syncingSystem || "Sincronizando Frequências NSO...",
+      t.sistemaPronto || "Validando Criptografia de Dados...",
+      t.collectingSamples || "Calibrando Sensores Bio-Magnéticos...",
+      t.sistemaPronto || "Sistema Pronto para Operação."
     ];
 
     let currentStepIdx = 0;
@@ -98,12 +103,12 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
 
   const startScanningDevice = () => {
     if (!patientData) {
-      alert("Por favor, selecione um paciente no Dashboard antes de iniciar a varredura.");
+      alert(t.noPatientSelected || "Por favor, selecione um paciente no Dashboard antes de iniciar a varredura.");
       return;
     }
     setSyncStatus('scanning');
     setScanProgress(0);
-    speakText("Aparelho em funcionamento. Iniciando varredura de biocampo e ressonância celular.");
+    speakText(t.deviceInOperation || "Aparelho em funcionamento. Iniciando varredura de biocampo e ressonância celular.", t.ttsInstruction);
 
     const interval = setInterval(() => {
       setScanProgress(prev => {
@@ -121,12 +126,12 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
   const runAnalysis = async () => {
     setLoading(true);
     const contextStr = activeTab === 'docs' 
-      ? `Analise este documento (${docType === 'exam' ? 'Exame Laboratorial' : 'Receita Médica'}).`
+      ? `Analise este documento (${docType === 'exam' ? t.exam : t.prescription}).`
       : activeTab === 'scan'
       ? `Analise esta imagem capturada pelo scanner óptico (possível iridologia ou atlas).`
       : `Analise os dados de telemetria e ressonância do dispositivo ${connectedDevice?.name}.`;
 
-    speakText("Iniciando processamento inteligente de dados clínicos.");
+    speakText(t.startingClinicalProcessing || "Iniciando processamento inteligente de dados clínicos.", t.ttsInstruction);
     
     try {
       const prompt = `${contextStr} Paciente: ${patientData?.name}, Queixas: ${patientData?.complaints}. Gere protocolos detalhados de Biomagnetismo, Acupuntura Integrativa e Fitoterapia baseados nos achados deste documento.`;
@@ -134,11 +139,11 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
       setReport(result);
       if (onAnalysisComplete) onAnalysisComplete(result);
       setSyncStatus('ready');
-      speakText("Análise finalizada. O relatório de biomagnetismo e acupuntura está pronto para visualização.");
+      speakText(t.analysisFinished || "Análise finalizada. O relatório de biomagnetismo e acupuntura está pronto para visualização.", t.ttsInstruction);
     } catch (err) {
       console.error(err);
       setSyncStatus('ready');
-      speakText("Erro na comunicação com o servidor de IA. Tente novamente.");
+      speakText(t.aiServerError || "Erro na comunicação com o servidor de IA. Tente novamente.", t.ttsInstruction);
     } finally {
       setLoading(false);
     }
@@ -147,11 +152,18 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
   const startCamera = async () => {
     setIsCameraActive(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' } 
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: 'environment' } 
+        });
+      } catch (initialErr) {
+        console.warn("Initial camera request failed, trying fallback:", initialErr);
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
       if (videoRef.current) videoRef.current.srcObject = stream;
     } catch (err) {
+      console.error("Detailed Camera Error:", err);
       alert("Câmera indisponível.");
       setIsCameraActive(false);
     }
@@ -166,44 +178,71 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
         context.drawImage(videoRef.current, 0, 0);
         const dataUrl = canvasRef.current.toDataURL('image/jpeg');
         setPreview(dataUrl);
-        if (videoRef.current.srcObject) (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
+        if (videoRef.current.srcObject) {
+          (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
+          videoRef.current.pause();
+          videoRef.current.srcObject = null;
+        }
         setIsCameraActive(false);
       }
     }
   };
 
-  const handleSave = (type: 'pdf' | 'word' | 'cloud') => {
+  const handleSave = async (type: 'pdf' | 'word' | 'cloud') => {
+    if (!patientData || !report) return;
+    
     setIsSaving(type);
     const messages = {
-      pdf: "Gerando relatório em PDF de alta resolução...",
-      word: "Convertendo análise para documento Word (.docx)...",
-      cloud: "Sincronizando resultados com o servidor NSO Cloud..."
+      pdf: t.savePdf,
+      word: t.saveWord,
+      cloud: t.syncingSystem
     };
     
     speakText(messages[type]);
     
-    setTimeout(() => {
+    try {
+      if (type === 'pdf') {
+        await generateConsultationPDF(patientData, [], report, preview);
+      } else if (type === 'word') {
+        await generateConsultationWord(patientData, [], report);
+      } else {
+        // Cloud save logic
+        const { savePatient } = useStore.getState();
+        const updatedPatient: PatientData = {
+          ...patientData,
+          consultationHistory: [report, ...(patientData.consultationHistory || [])]
+        };
+        savePatient(updatedPatient);
+        speakText(t.savedSuccess);
+      }
+      
       setIsSaving(null);
-      speakText(`${type.toUpperCase()} salvo com sucesso.`);
-    }, 2500);
+      if (type !== 'cloud') {
+        speakText(`${type.toUpperCase()} ${t.savedSuccess}`);
+      }
+    } catch (error) {
+      console.error(`Error in handleSave (${type}):`, error);
+      setIsSaving(null);
+      speakText(t.errorSaving);
+    }
   };
 
   return (
     <div className="space-y-10 pb-32 animate-fadeIn">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div>
-          <h2 className="text-4xl font-black text-slate-900 tracking-tighter uppercase italic">Laboratório de Hardware</h2>
-          <p className="text-slate-500 font-medium italic">Sincronização de Dispositivos e Análise Bio-Ressonante.</p>
+          <h2 className="text-4xl font-black text-slate-900 tracking-tighter uppercase italic">{t.hardwareLabTitle}</h2>
+          <p className="text-slate-500 font-medium italic">{t.hardwareLabSubtitle}</p>
         </div>
         <div className="flex bg-slate-200/50 p-1.5 rounded-3xl shadow-inner shrink-0 overflow-x-auto max-w-full">
           <button onClick={() => setActiveTab('docs')} className={`px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === 'docs' ? 'bg-white text-emerald-600 shadow-xl' : 'text-slate-400'}`}>
-            Exames/Receitas
+            {t.examsPrescriptions}
           </button>
           <button onClick={() => setActiveTab('sync')} className={`px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === 'sync' ? 'bg-white text-blue-900 shadow-xl' : 'text-slate-400'}`}>
-            Hardware USB
+            {t.hardwareUsb}
           </button>
           <button onClick={() => setActiveTab('scan')} className={`px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === 'scan' ? 'bg-white text-slate-900 shadow-xl' : 'text-slate-400'}`}>
-            Scanner Óptico
+            {t.opticalScanner}
           </button>
         </div>
       </header>
@@ -215,8 +254,8 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
               <div className="text-center space-y-8 w-full max-w-md">
                 <div className="w-40 h-40 bg-emerald-50 rounded-[3rem] flex items-center justify-center text-6xl shadow-inner mx-auto border-2 border-emerald-100">📄</div>
                 <div className="space-y-4">
-                  <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Análise de Documentos</h3>
-                  <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.3em]">Envie fotos de exames laboratoriais ou receitas para análise imediata.</p>
+                  <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">{t.docAnalysisTitle}</h3>
+                  <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.3em]">{t.docAnalysisDesc}</p>
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4">
@@ -224,20 +263,20 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
                     onClick={() => setDocType('exam')} 
                     className={`p-4 rounded-2xl border-2 transition-all font-black text-[10px] uppercase tracking-widest ${docType === 'exam' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-100 text-slate-400'}`}
                   >
-                    🧪 Exame
+                    🧪 {t.exam}
                   </button>
                   <button 
                     onClick={() => setDocType('prescription')} 
                     className={`p-4 rounded-2xl border-2 transition-all font-black text-[10px] uppercase tracking-widest ${docType === 'prescription' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-100 text-slate-400'}`}
                   >
-                    💊 Receita
+                    💊 {t.prescription}
                   </button>
                 </div>
 
                 <div className="space-y-4 pt-4">
-                  <button onClick={startCamera} className="w-full bg-slate-950 text-white py-6 rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-xl hover:bg-emerald-600 transition-all">Capturar com Câmera</button>
+                  <button onClick={startCamera} className="w-full bg-slate-950 text-white py-6 rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-xl hover:bg-emerald-600 transition-all">{t.captureCamera}</button>
                   <label className="block w-full bg-white border-2 border-slate-100 text-slate-600 py-6 rounded-[2rem] font-black text-xs uppercase tracking-widest cursor-pointer hover:bg-slate-50 transition-all text-center">
-                    Selecionar da Galeria
+                    {t.selectGallery}
                     <input 
                       type="file" 
                       accept="image/*" 
@@ -258,16 +297,16 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
               <div className="w-full max-w-md space-y-8 animate-slideUp">
                 <div className="relative">
                   <img src={preview} className="w-full rounded-[3rem] shadow-2xl border-8 border-white" alt="Documento" />
-                  <div className="absolute top-6 right-6 bg-emerald-500 text-white px-4 py-1 rounded-full font-black text-[8px] uppercase">{docType === 'exam' ? 'Exame' : 'Receita'}</div>
+                  <div className="absolute top-6 right-6 bg-emerald-500 text-white px-4 py-1 rounded-full font-black text-[8px] uppercase">{docType === 'exam' ? t.exam : t.prescription}</div>
                 </div>
                 <div className="flex gap-4">
-                  <button onClick={() => setPreview(null)} className="flex-1 bg-slate-100 text-slate-500 py-5 rounded-3xl font-black text-[10px] uppercase tracking-widest">Descartar</button>
+                  <button onClick={() => setPreview(null)} className="flex-1 bg-slate-100 text-slate-500 py-5 rounded-3xl font-black text-[10px] uppercase tracking-widest">{t.discard}</button>
                   <button 
                     onClick={runAnalysis} 
                     disabled={loading}
                     className="flex-[2] bg-emerald-600 text-white py-5 rounded-3xl font-black text-[10px] uppercase tracking-widest shadow-lg flex items-center justify-center gap-2"
                   >
-                    {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : 'Analisar com IA'}
+                    {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : t.analyzeAI}
                   </button>
                 </div>
               </div>
@@ -283,15 +322,15 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
                    <div className="absolute -top-4 -right-4 bg-emerald-600 text-white px-6 py-2 rounded-2xl font-black text-[10px] shadow-2xl uppercase">Auto-Detect</div>
                 </div>
                 <div className="text-center max-w-lg space-y-6">
-                  <h3 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">Detecção Automática</h3>
+                  <h3 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">{t.autoDetection}</h3>
                   <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.4em] leading-relaxed">
-                    Clique no ícone ou no botão abaixo para que o sistema identifique automaticamente qualquer hardware NSOFISION conectado à porta USB.
+                    {t.autoDetectionDesc}
                   </p>
                   <button 
                     onClick={startAutoDiscovery}
                     className="bg-slate-950 text-white px-16 py-6 rounded-[2.5rem] font-black text-xs uppercase tracking-[0.2em] shadow-2xl hover:bg-emerald-600 transition-all active:scale-95"
                   >
-                    Procurar Aparelhos Conectados
+                    {t.searchConnectedDevices}
                   </button>
                 </div>
               </div>
@@ -304,8 +343,8 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
                     <div className="w-32 h-32 bg-blue-600 text-white rounded-full flex items-center justify-center text-4xl shadow-3xl animate-pulse">📡</div>
                  </div>
                  <div className="text-center space-y-2">
-                    <h4 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Buscando Hardware...</h4>
-                    <p className="text-blue-600 text-[10px] font-black uppercase tracking-widest animate-pulse">Varredura de portas USB ativa</p>
+                    <h4 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">{t.searchingHardware}</h4>
+                    <p className="text-blue-600 text-[10px] font-black uppercase tracking-widest animate-pulse">{t.usbScanActive}</p>
                  </div>
               </div>
             ) : syncStatus === 'installing' ? (
@@ -313,7 +352,7 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
                  <div className="w-24 h-24 bg-emerald-600 text-white rounded-[2.5rem] flex items-center justify-center text-5xl shadow-3xl animate-spin-slow">📥</div>
                  <div className="w-full max-w-md space-y-6">
                     <div className="text-center">
-                       <h4 className="text-xl font-black text-slate-900 uppercase tracking-tight">Sincronizando Sistema</h4>
+                       <h4 className="text-xl font-black text-slate-900 uppercase tracking-tight">{t.syncingSystem}</h4>
                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-1">{installationStep}</p>
                     </div>
                     <div className="h-4 bg-slate-100 rounded-full overflow-hidden p-1 shadow-inner">
@@ -333,9 +372,9 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
                        </div>
                        <div>
                           <div className="flex items-center gap-3 mb-2">
-                             <span className="bg-blue-500 text-slate-950 px-4 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.2em] shadow-lg">HARDWARE ONLINE</span>
+                             <span className="bg-blue-500 text-slate-950 px-4 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.2em] shadow-lg">{t.hardwareOnline}</span>
                              <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase border ${syncStatus === 'scanning' ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-white/10 text-white border-white/20'}`}>
-                                {syncStatus === 'scanning' ? 'VARREDURA EM CURSO' : 'SISTEMA PRONTO'}
+                                {syncStatus === 'scanning' ? t.varreduraEmCurso : t.sistemaPronto}
                              </span>
                           </div>
                           <h4 className="text-3xl font-black uppercase tracking-tighter">{connectedDevice?.name}</h4>
@@ -352,16 +391,16 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
                           {syncStatus === 'scanning' ? (
                              <>
                                 <div className="w-8 h-8 border-4 border-slate-950/20 border-t-slate-950 rounded-full animate-spin mb-1"></div>
-                                <span className="text-sm">PROCESSANDO...</span>
+                                <span className="text-sm uppercase">{t.processing}</span>
                              </>
                           ) : (
                              <>
                                 <span className="text-4xl mb-1">⚡</span>
-                                INICIAR SCANNER
+                                {t.startScanner}
                              </>
                           )}
                        </button>
-                       <button onClick={() => setSyncStatus('idle')} className="text-[10px] font-black text-slate-500 uppercase tracking-widest text-center hover:text-white transition-colors">Desconectar Aparelho</button>
+                       <button onClick={() => setSyncStatus('idle')} className="text-[10px] font-black text-slate-500 uppercase tracking-widest text-center hover:text-white transition-colors">{t.disconnectDevice}</button>
                     </div>
                     
                     <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-blue-500/5 to-transparent pointer-events-none"></div>
@@ -461,7 +500,14 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
                         </div>
                      </div>
                      <div className="absolute bottom-20 flex items-center gap-12">
-                        <button onClick={() => setIsCameraActive(false)} className="bg-white/10 text-white px-12 py-6 rounded-3xl font-black text-[10px] uppercase backdrop-blur-xl border border-white/10">Cancelar</button>
+                        <button onClick={() => {
+                          if (videoRef.current?.srcObject) {
+                            (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
+                            videoRef.current.pause();
+                            videoRef.current.srcObject = null;
+                          }
+                          setIsCameraActive(false);
+                        }} className="bg-white/10 text-white px-12 py-6 rounded-3xl font-black text-[10px] uppercase backdrop-blur-xl border border-white/10">Cancelar</button>
                         <button onClick={takePhoto} className="w-28 h-28 bg-white rounded-full border-[12px] border-slate-400 shadow-[0_0_80px_rgba(255,255,255,0.4)] active:scale-90 transition-all"></button>
                         <div className="w-28"></div>
                      </div>

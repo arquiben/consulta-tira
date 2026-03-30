@@ -1,18 +1,24 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, GenerateContentResponse } from '@google/genai';
-import { Message, PatientData, AnalysisReport } from '../types';
+import { Message, PatientData, AnalysisReport, ClinicSettings } from '../types';
+import { translations } from '../translations';
+import { useStore } from '../store/useStore';
 import { speakText } from '../services/tts';
-import { generateTherapyReport, generateFollowUpQuestions } from '../services/gemini';
-import { Sparkles, MessageSquarePlus, Send, Mic, FileDown, FileText, Cloud, RefreshCw } from 'lucide-react';
+import { generateTherapyReport, generateFollowUpQuestions, getGeminiAI, withRetry } from '../services/gemini';
+import { Sparkles, MessageSquarePlus, Send, Mic, FileDown, FileText, Cloud, RefreshCw, Save, AlertTriangle, Play, Pause, Square, Search, Microscope, Volume2, FileSignature } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+
+import { generateConsultationPDF, generateConsultationWord } from '../services/documentGenerator';
 
 interface ConsultationProps {
   patientData: PatientData | null;
   onReportGenerated?: (report: AnalysisReport) => void;
   onReopenReport?: () => void;
   hasReport?: boolean;
+  examData?: AnalysisReport | null;
+  clinicSettings: ClinicSettings;
 }
 
 function decode(base64: string) {
@@ -52,8 +58,9 @@ function encode(bytes: Uint8Array) {
   return btoa(binary);
 }
 
-export const Consultation: React.FC<ConsultationProps> = ({ patientData, onReportGenerated, onReopenReport, hasReport }) => {
-  const [messages, setMessages] = useState<Message[]>([]);
+export const Consultation: React.FC<ConsultationProps> = ({ patientData, onReportGenerated, onReopenReport, hasReport, examData, clinicSettings }) => {
+  const t = translations[clinicSettings.language || 'pt'] || translations.pt;
+  const [messages, setMessages] = useState<Message[]>(patientData?.chatHistory || []);
   const [inputText, setInputText] = useState('');
   const [isLive, setIsLive] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -138,6 +145,28 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
     }
   };
 
+  useEffect(() => {
+    if (patientData?.chatHistory) {
+      setMessages(patientData.chatHistory);
+    } else {
+      setMessages([]);
+    }
+  }, [patientData?.id]);
+
+  useEffect(() => {
+    if (messages.length > 0 && patientData) {
+      // Only save if the messages are different from what's already in patientData
+      if (JSON.stringify(messages) !== JSON.stringify(patientData.chatHistory)) {
+        const { savePatient } = useStore.getState();
+        const updatedPatient = {
+          ...patientData,
+          chatHistory: messages
+        };
+        savePatient(updatedPatient);
+      }
+    }
+  }, [messages, patientData]);
+
   const handleSendText = async (retryText?: string) => {
     const textToProcess = String(retryText || inputText || '');
     if (!textToProcess.trim()) return;
@@ -154,18 +183,18 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
     setIsTyping(true);
     
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-      const contextStr = patientData ? `PACIENTE: ${patientData.name}, IMC: ${patientData.bmi}, TA: ${patientData.bloodPressure}, Queixas: ${patientData.complaints}` : 'Paciente não identificado';
+      const ai = getGeminiAI();
+      const contextStr = patientData ? `${t.patient}: ${patientData.name}, IMC: ${patientData.bmi}, TA: ${patientData.bloodPressure}, ${t.mainComplaints}: ${patientData.complaints}` : t.noPatientSelected;
       
-      const streamResponse = await ai.models.generateContentStream({
+      const streamResponse = await withRetry(() => ai.models.generateContentStream({
         model: 'gemini-3-flash-preview',
         contents: [{ 
-          parts: [{ text: `${contextStr}. CONSULTA SOBRE PATOLOGIA/DOENÇA: ${textToProcess}` }] 
+          parts: [{ text: `${contextStr}. ${t.consultationOnPathology}: ${textToProcess}` }] 
         }],
         config: { 
-          systemInstruction: "Você é o Consulfision. Você é um especialista em patologias e clínica integrativa. Realize uma consulta completa sobre QUALQUER doença ou condição relatada. Forneça diagnósticos diferenciais, sugestões de tratamento e uma RECEITA DETALHADA. Use Markdown para estruturar sua resposta. Sempre inclua uma seção '### 📝 RECEITA CLÍNICA' com as recomendações de medicamentos, fitoterápicos ou suplementos. Seja clínico, resolutivo e evite termos genéricos como 'objeto'." 
+          systemInstruction: t.aiSystemInstruction
         }
-      });
+      }));
       
       let fullText = '';
       let isFirstChunk = true;
@@ -192,10 +221,11 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
           });
         }
       }
+      setIsTyping(false);
 
       if (fullText) {
         setIsSpeaking(true);
-        const result = await speakText(fullText);
+        const result = await speakText(fullText, t.ttsInstruction);
         if (result) {
           chatAudioRef.current = result;
           result.source.start();
@@ -218,7 +248,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
                         err.message?.toLowerCase().includes('timeout');
       
       setLastError({
-        message: isNetwork ? "Erro de conexão com o servidor. Verifique sua internet." : "Ocorreu um erro inesperado na consulta.",
+        message: isNetwork ? t.connectionError : t.unexpectedError,
         type: isNetwork ? 'network' : 'other'
       });
     }
@@ -228,30 +258,41 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
     if (messages.length === 0) return;
     setIsGeneratingProtocol(true);
     
-    const introText = "Finalizando consulta. Gerando relatório técnico de protocolos com base na nossa conversa.";
-    const introResult = await speakText(introText);
+    const introText = t.finishingConsultation;
+    const introResult = await speakText(introText, t.ttsInstruction);
     if (introResult) {
       introResult.source.start();
     }
 
     try {
       const conversationHistory = messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
-      const prompt = `Com base nesta conversa clínica, gere um relatório estruturado de protocolos:\n\n${conversationHistory}`;
+      const prompt = `${t.generateReportPrompt}\n\n${conversationHistory}`;
       
       const report = await generateTherapyReport(prompt, undefined, patientData);
       
       // Narrate the summary of the generated report
       if (report.summary) {
-        const summaryResult = await speakText(`Relatório gerado com sucesso. Resumo clínico: ${report.summary}`);
+        const summaryResult = await speakText(`${t.reportGeneratedSuccess} ${report.summary}`, t.ttsInstruction);
         if (summaryResult) {
           summaryResult.source.start();
         }
       }
 
-      if (onReportGenerated) onReportGenerated(report);
+      if (onReportGenerated) {
+        // Save chat history one last time before generating report
+        if (patientData) {
+          const { savePatient } = useStore.getState();
+          const updatedPatient = {
+            ...patientData,
+            chatHistory: messages
+          };
+          savePatient(updatedPatient);
+        }
+        onReportGenerated(report);
+      }
     } catch (err) {
       console.error(err);
-      alert("Erro ao gerar protocolo da conversa.");
+      alert(t.reportError);
     } finally {
       setIsGeneratingProtocol(false);
     }
@@ -270,7 +311,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
       setMessages(prev => [...prev, modelMsg]);
       
       setIsSpeaking(true);
-      const result = await speakText(questions);
+      const result = await speakText(questions, t.ttsInstruction);
       if (result) {
         chatAudioRef.current = result;
         result.source.start();
@@ -280,24 +321,46 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
       }
     } catch (err) {
       console.error(err);
-      alert("Erro ao gerar perguntas de acompanhamento.");
+      alert(t.followUpError);
     } finally {
       setIsAskingFollowUp(false);
     }
   };
 
-  const handleSave = (type: 'pdf' | 'word' | 'cloud') => {
-    setIsSaving(type);
-    const messages = {
-      pdf: "Gerando laudo da consulta em PDF...",
-      word: "Exportando conversa clínica para Word...",
-      cloud: "Sincronizando consulta com a nuvem NSO..."
-    };
-    speakText(messages[type]);
-    setTimeout(() => {
+  const handleSave = async (type: 'pdf' | 'word' | 'cloud' | 'full') => {
+    if (!patientData || messages.length === 0) return;
+    
+    setIsSaving(type === 'full' ? 'cloud' : type);
+    const { savePatient } = useStore.getState();
+    
+    try {
+      if (type === 'pdf') {
+        await generateConsultationPDF(patientData, messages, examData);
+      } else if (type === 'word') {
+        await generateConsultationWord(patientData, messages, examData);
+      } else {
+        // Cloud/Full save logic
+        const updatedPatient = {
+          ...patientData,
+          chatHistory: [...(patientData.chatHistory || []), ...messages]
+        };
+        
+        savePatient(updatedPatient);
+        
+        if (type === 'full' && onReportGenerated) {
+          if (!hasReport && messages.length > 0) {
+            handleFinishAndGenerateProtocol();
+          }
+        }
+      }
+      
+      speakText(`${type === 'full' ? t.saveConsultation : type.toUpperCase()} ${t.savedSuccess}`, t.ttsInstruction);
+    } catch (err) {
+      console.error("Error saving document:", err);
+      alert("Erro ao gerar documento. Tente novamente.");
+    } finally {
       setIsSaving(null);
-      speakText(`${type.toUpperCase()} salvo com sucesso.`);
-    }, 2000);
+    }
   };
 
   const startLiveSession = async () => {
@@ -308,7 +371,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
       setIsPaused(false);
       setLiveTimer(0);
       
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+      const ai = getGeminiAI();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
       const inCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
@@ -316,7 +379,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
       audioContextRef.current = outCtx;
 
       const sessionPromise = ai.live.connect({
-        model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+        model: 'gemini-2.5-flash-native-audio-preview-09-2025',
         callbacks: {
           onopen: () => {
             const source = inCtx.createMediaStreamSource(stream);
@@ -369,7 +432,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
         config: {
           responseModalities: [Modality.AUDIO],
           outputAudioTranscription: {},
-          systemInstruction: `Você é o Consulfision, assistente de voz clínico universal. Sua função é analisar qualquer patologia ou doença relatada. Forneça orientações técnicas e uma RECEITA CLÍNICA detalhada. Use uma linguagem clara e profissional. Contexto do Paciente: ${patientData?.name || 'Não informado'}.`
+          systemInstruction: `${t.liveAiInstruction} ${t.patient}: ${patientData?.name || t.none}.`
         }
       });
       
@@ -388,6 +451,17 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
   const stopLiveSession = () => {
     if (liveSessionRef.current) {
       liveSessionRef.current.close();
+      
+      // If there was a transcription, add it as a message so it can be saved
+      if (transcription) {
+        const liveMsg: Message = { 
+          role: 'model', 
+          content: `**${t.voiceConsultationActive}:**\n\n${transcription}`, 
+          timestamp: new Date() 
+        };
+        setMessages(prev => [...prev, liveMsg]);
+      }
+      
       setIsLive(false);
       setIsPaused(false);
     }
@@ -451,9 +525,9 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
       {permissionError && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-md bg-red-50 border border-red-200 p-4 rounded-2xl shadow-2xl animate-slideDown">
           <div className="flex items-start gap-3">
-            <div className="text-red-500 text-xl">⚠️</div>
+            <div className="text-red-500 text-xl"><AlertTriangle size={24} /></div>
             <div className="flex-1">
-              <p className="text-red-900 text-xs font-black uppercase tracking-tight mb-1">Erro de Permissão</p>
+              <p className="text-red-900 text-xs font-black uppercase tracking-tight mb-1">{t.permissionError}</p>
               <p className="text-red-700 text-[11px] font-medium leading-tight">{permissionError}</p>
             </div>
             <button 
@@ -470,7 +544,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
           <div className="relative">
             <div className="w-48 h-48 bg-emerald-500/20 rounded-full flex items-center justify-center animate-pulse">
               <div className="w-32 h-32 bg-emerald-500 rounded-full flex items-center justify-center shadow-[0_0_50px_rgba(16,185,129,0.5)]">
-                <div className="text-6xl animate-bounce">🎙️</div>
+                <Mic size={64} className="text-white animate-bounce" />
               </div>
             </div>
             <div className="absolute -inset-4 border-2 border-emerald-500/30 rounded-full animate-[ping_3s_linear_infinite]"></div>
@@ -479,45 +553,58 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
 
           <div className="space-y-4">
             <h2 className="text-4xl font-black text-white uppercase tracking-tighter">
-              {isPaused ? 'Consulta Pausada' : 'Consulta por Voz Ativa'}
+              {isPaused ? t.consultationPaused : t.voiceConsultationActive}
             </h2>
             <div className="flex flex-col items-center gap-2">
               <div className={`text-6xl font-mono font-black tracking-widest ${isPaused ? 'text-slate-400' : 'text-emerald-400'}`}>
                 {formatTime(liveTimer)}
               </div>
               <p className={`${isPaused ? 'text-slate-500' : 'text-emerald-500/60'} font-black uppercase tracking-[0.3em] text-xs`}>
-                {isPaused ? 'Microfone Desativado' : 'Ouvindo Paciente...'}
+                {isPaused ? t.micDisabled : t.listeningPatient}
               </p>
             </div>
           </div>
 
           <div className="max-w-2xl w-full bg-white/5 p-8 rounded-[3rem] border border-white/10 min-h-[120px] flex items-center justify-center">
             <p className="text-white/80 text-xl font-medium italic leading-relaxed">
-              {isPaused ? "Sessão em espera..." : (transcription || "Aguardando fala...")}
+              {isPaused ? t.sessionWaiting : (transcription || t.waitingSpeech)}
             </p>
           </div>
 
-          <div className="flex flex-col md:flex-row gap-6 w-full max-w-2xl">
+          <div className="flex flex-col md:flex-row gap-4 w-full max-w-4xl">
             <button
               onClick={togglePauseLive}
-              className={`flex-1 px-10 py-6 rounded-[2.5rem] font-black uppercase tracking-widest shadow-2xl transition-all flex items-center justify-center gap-4 group ${
+              className={`flex-1 px-8 py-6 rounded-[2.5rem] font-black uppercase tracking-widest shadow-2xl transition-all flex items-center justify-center gap-4 group ${
                 isPaused ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-slate-700 text-white hover:bg-slate-600'
               }`}
             >
               <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                {isPaused ? '▶️' : '⏸️'}
+                {isPaused ? <Play size={24} fill="currentColor" /> : <Pause size={24} fill="currentColor" />}
               </div>
-              {isPaused ? 'Retomar' : 'Pausar'}
+              {isPaused ? t.resume : t.pause}
+            </button>
+
+            <button
+              onClick={() => {
+                stopLiveSession();
+                setTimeout(() => handleSave('full'), 500);
+              }}
+              className="flex-1 bg-emerald-600 text-white px-8 py-6 rounded-[2.5rem] font-black uppercase tracking-widest shadow-2xl transition-all flex items-center justify-center gap-4 group"
+            >
+              <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                <Save size={24} />
+              </div>
+              {t.saveConsultation}
             </button>
 
             <button
               onClick={stopLiveSession}
-              className="flex-1 bg-red-500 hover:bg-red-600 text-white px-10 py-6 rounded-[2.5rem] font-black uppercase tracking-widest shadow-2xl transition-all flex items-center justify-center gap-4 group"
+              className="flex-1 bg-red-500 hover:bg-red-600 text-white px-8 py-6 rounded-[2.5rem] font-black uppercase tracking-widest shadow-2xl transition-all flex items-center justify-center gap-4 group"
             >
               <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                ⏹️
+                <Square size={24} fill="currentColor" />
               </div>
-              Terminar
+              {t.finish}
             </button>
           </div>
         </div>
@@ -525,8 +612,8 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
 
       <div className="p-6 md:p-8 border-b bg-slate-50/50 flex flex-col md:flex-row justify-between items-center gap-4">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-emerald-600 text-white rounded-2xl flex items-center justify-center text-2xl shadow-lg relative">
-            🎙️
+          <div className="w-12 h-12 bg-emerald-600 text-white rounded-2xl flex items-center justify-center shadow-lg relative">
+            <Mic size={24} />
             {isSpeaking && (
               <span className="absolute -top-1 -right-1 flex h-4 w-4">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
@@ -535,16 +622,26 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
             )}
           </div>
           <div>
-            <h2 className="text-xl font-black text-slate-900 tracking-tight">Consulta Clínica de Patologias</h2>
+            <h2 className="text-xl font-black text-slate-900 tracking-tight">{t.consultationTitle}</h2>
             <div className="flex items-center gap-2">
                <span className={`w-2 h-2 rounded-full ${isSpeaking ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500 animate-pulse'}`}></span>
                <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">
-                 {isSpeaking ? 'Narrando Resultado...' : 'Análise de Doenças Ativa'}
+                 {isSpeaking ? t.narratingResult : t.analysisActive}
                </p>
             </div>
           </div>
         </div>
         <div className="flex gap-3 flex-wrap justify-center">
+          {messages.length > 0 && (
+            <button
+              onClick={() => handleSave('full')}
+              disabled={!!isSaving}
+              className="bg-emerald-100 text-emerald-700 px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-200 transition-all flex items-center gap-2 shadow-sm"
+            >
+              {isSaving ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
+              {t.saveConsultation}
+            </button>
+          )}
           {messages.length > 0 && (
             <>
               <button
@@ -553,15 +650,16 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
                 className={`bg-blue-600 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-all flex items-center gap-2 shadow-xl ${isAskingFollowUp ? 'animate-pulse opacity-70' : ''}`}
               >
                 <MessageSquarePlus size={16} />
-                {isAskingFollowUp ? 'Analisando...' : 'Continuar Investigação'}
+                {isAskingFollowUp ? t.analyzing : t.continueInvestigation}
               </button>
-              <button
-                onClick={handleFinishAndGenerateProtocol}
-                disabled={isGeneratingProtocol}
-                className={`bg-amber-500 text-slate-900 px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-amber-400 transition-all flex items-center gap-2 shadow-xl ${isGeneratingProtocol ? 'animate-pulse opacity-70' : ''}`}
-              >
-                {isGeneratingProtocol ? '⏳ Gerando...' : '📝 Gerar Protocolo'}
-              </button>
+                <button
+                  onClick={handleFinishAndGenerateProtocol}
+                  disabled={isGeneratingProtocol}
+                  className={`bg-amber-500 text-slate-900 px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-amber-400 transition-all flex items-center gap-2 shadow-xl ${isGeneratingProtocol ? 'animate-pulse opacity-70' : ''}`}
+                >
+                  {isGeneratingProtocol ? <RefreshCw size={16} className="animate-spin" /> : <FileSignature size={16} />}
+                  {isGeneratingProtocol ? `${t.generating}...` : t.generateProtocol}
+                </button>
             </>
           )}
           {isSpeaking && (
@@ -572,13 +670,14 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
                   isNarrationPaused ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                {isNarrationPaused ? '▶️ Retomar' : '⏸️ Pausar'}
+                {isNarrationPaused ? <Play size={12} fill="currentColor" /> : <Pause size={12} fill="currentColor" />}
+                {isNarrationPaused ? t.resume : t.pause}
               </button>
               <button
                 onClick={stopAllAudio}
                 className="bg-red-100 text-red-600 px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-red-200 transition-all flex items-center gap-2"
               >
-                <span>⏹️</span> Terminar
+                <Square size={12} fill="currentColor" /> {t.finish}
               </button>
             </div>
           )}
@@ -588,7 +687,8 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
               isLive ? 'bg-red-500 text-white animate-pulse' : 'bg-emerald-600 text-white hover:bg-emerald-700'
             }`}
           >
-            {isLive ? '⏹️ Parar Escuta' : '🎙️ Iniciar Consulta por Voz'}
+            {isLive ? <Square size={16} fill="currentColor" /> : <Mic size={16} />}
+            {isLive ? t.stopListening : t.startVoiceConsultation}
           </button>
         </div>
       </div>
@@ -596,11 +696,13 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 md:p-10 space-y-6 bg-slate-50/30 custom-scrollbar">
         {messages.length === 0 && !isLive && !isTyping && (
           <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-10">
-            <div className="w-24 h-24 bg-white rounded-full shadow-xl flex items-center justify-center text-4xl group hover:scale-110 transition-transform">🔬</div>
+            <div className="w-24 h-24 bg-white rounded-full shadow-xl flex items-center justify-center text-4xl group hover:scale-110 transition-transform">
+              <Microscope size={48} className="text-emerald-600" />
+            </div>
             <div className="max-w-xl space-y-6">
                <div className="space-y-2">
-                 <h3 className="font-black text-slate-900 text-3xl tracking-tight uppercase italic">Consulta & Receita IA</h3>
-                 <p className="text-slate-500 text-sm font-medium leading-relaxed">Escreva a patologia ou doença abaixo para receber uma análise clínica profunda e uma receita detalhada com narração.</p>
+                 <h3 className="font-black text-slate-900 text-3xl tracking-tight uppercase italic">{t.consultationTitle}</h3>
+                 <p className="text-slate-500 text-sm font-medium leading-relaxed">{t.consultationDesc}</p>
                </div>
                
                <div className="bg-white p-2 rounded-[2.5rem] shadow-2xl border border-slate-100 flex items-center gap-2">
@@ -609,7 +711,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
                    value={inputText}
                    onChange={(e) => setInputText(e.target.value)}
                    onKeyDown={(e) => e.key === 'Enter' && handleSendText()}
-                   placeholder="Ex: Diabetes Tipo 2, Gastrite Crônica, Ansiedade..."
+                   placeholder={t.consultationPlaceholder}
                    className="flex-1 bg-transparent px-6 py-4 outline-none font-bold text-slate-800"
                  />
                  <button 
@@ -622,7 +724,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
 
                <div className="flex items-center gap-4 py-4">
                  <div className="flex-1 h-px bg-slate-200"></div>
-                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ou use sua voz</span>
+                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t.orUseVoice}</span>
                  <div className="flex-1 h-px bg-slate-200"></div>
                </div>
 
@@ -633,7 +735,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
                  <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
                    🎙️
                  </div>
-                 Iniciar Consulta por Voz
+                 {t.startVoiceConsultation}
                </button>
             </div>
           </div>
@@ -656,8 +758,8 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
                   m.content
                 )}
                 {m.role === 'model' && i === messages.length - 1 && isSpeaking && (
-                  <div className="absolute -bottom-2 -right-2 bg-blue-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-[10px] animate-bounce">
-                    🔊
+                  <div className="absolute -bottom-2 -right-2 bg-blue-500 text-white w-6 h-6 rounded-full flex items-center justify-center animate-bounce">
+                    <Volume2 size={12} />
                   </div>
                 )}
               </div>
@@ -671,21 +773,21 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
                   disabled={isAskingFollowUp}
                   className="bg-blue-50 text-blue-700 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border border-blue-100 hover:bg-blue-100 transition-all flex items-center gap-2"
                 >
-                  <MessageSquarePlus size={14} /> Investigar Mais
+                  <MessageSquarePlus size={14} /> {t.investigateMore}
                 </button>
                 <button
                   onClick={handleFinishAndGenerateProtocol}
                   disabled={isGeneratingProtocol}
                   className="bg-amber-50 text-amber-700 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border border-amber-100 hover:bg-amber-100 transition-all flex items-center gap-2"
                 >
-                  <span>📝</span> Gerar Relatório Técnico
+                  <FileSignature size={14} /> {t.generateTechnicalReport}
                 </button>
                 <div className="flex gap-2 ml-auto pr-4">
                   <button 
                     onClick={() => handleSave('pdf')}
                     disabled={!!isSaving}
                     className="p-2 bg-white border border-slate-200 text-slate-400 hover:text-blue-600 rounded-lg transition-all"
-                    title="Salvar PDF"
+                    title={t.savePdf}
                   >
                     {isSaving === 'pdf' ? <RefreshCw size={14} className="animate-spin" /> : <FileDown size={14} />}
                   </button>
@@ -693,7 +795,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
                     onClick={() => handleSave('word')}
                     disabled={!!isSaving}
                     className="p-2 bg-white border border-slate-200 text-slate-400 hover:text-emerald-600 rounded-lg transition-all"
-                    title="Salvar Word"
+                    title={t.saveWord}
                   >
                     {isSaving === 'word' ? <RefreshCw size={14} className="animate-spin" /> : <FileText size={14} />}
                   </button>
@@ -701,7 +803,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
                     onClick={() => handleSave('cloud')}
                     disabled={!!isSaving}
                     className="p-2 bg-white border border-slate-200 text-slate-400 hover:text-amber-600 rounded-lg transition-all"
-                    title="Nuvem NSO"
+                    title={t.nsoCloud}
                   >
                     {isSaving === 'cloud' ? <RefreshCw size={14} className="animate-spin" /> : <Cloud size={14} />}
                   </button>
@@ -713,7 +815,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
         {isTyping && (
           <div className="flex justify-start animate-fadeIn">
              <div className="bg-white p-6 rounded-[2rem] border border-slate-100 flex gap-2 items-center">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-2">Consulfision analisando</span>
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-2">{t.aiAnalyzing}</span>
                 <div className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce"></div>
                 <div className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce [animation-delay:0.2s]"></div>
                 <div className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce [animation-delay:0.4s]"></div>
@@ -723,7 +825,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
         {lastError && (
           <div className="flex justify-center animate-fadeIn">
             <div className="bg-red-50 border border-red-100 p-6 rounded-[2.5rem] flex flex-col items-center gap-4 max-w-md text-center">
-              <div className="text-red-500 text-2xl">📡</div>
+              <div className="text-red-500 text-2xl"><RefreshCw size={32} /></div>
               <p className="text-red-900 text-sm font-bold">{lastError.message}</p>
               {lastError.type === 'network' && (
                 <button 
@@ -733,7 +835,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
                   }}
                   className="bg-red-600 text-white px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-700 transition-all"
                 >
-                  Tentar Novamente
+                  {t.retrying}
                 </button>
               )}
             </div>
@@ -748,7 +850,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSendText()}
-            placeholder="Digite a patologia ou doença para consulta completa..."
+            placeholder={t.consultationPlaceholder}
             className="w-full pl-6 pr-14 py-4 bg-slate-50 rounded-2xl focus:outline-none focus:ring-4 focus:ring-emerald-500/10 transition-all text-sm md:text-base font-medium border border-slate-100"
           />
           <button
@@ -756,7 +858,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
             className={`absolute right-2 top-1/2 -translate-y-1/2 p-3 rounded-xl transition-all ${
               isListening ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'
             }`}
-            title="Falar"
+            title={t.speak}
           >
             🎙️
           </button>

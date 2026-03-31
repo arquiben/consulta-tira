@@ -124,9 +124,18 @@ export const AnatomicalGenerator: React.FC<AnatomicalGeneratorProps> = ({ patien
       const audio = await generateTTS(expl.narration);
       setAudioUrl(audio);
 
-    } catch (err) {
-      setError('Falha ao gerar análise anatômica. Tente novamente.');
+    } catch (err: any) {
       console.error(err);
+      const isApiKeyMissing = err.message?.includes('GEMINI_API_KEY is not defined');
+      const isApiKeyInvalid = err.message?.includes('403') || err.message?.includes('API_KEY_INVALID');
+      
+      if (isApiKeyMissing) {
+        setError('Erro: Chave da API (GEMINI_API_KEY) não configurada no Netlify. Adicione a variável de ambiente nas configurações do seu deploy.');
+      } else if (isApiKeyInvalid) {
+        setError('Erro: Chave da API inválida ou sem permissão. Verifique se a chave está correta e se tem saldo/permissões.');
+      } else {
+        setError(`Falha ao gerar análise anatômica: ${err.message || 'Erro desconhecido'}. Tente novamente.`);
+      }
     } finally {
       setLoading(false);
     }

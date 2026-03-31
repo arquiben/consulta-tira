@@ -3,6 +3,7 @@ import { Search, Activity, Play, Plus, ChevronRight, Info, Save, Sparkles, Loade
 import { useStore } from '../store/useStore';
 import { narrateText } from '../services/NarrationService';
 import { GoogleGenAI, Type } from "@google/genai";
+import { getGeminiAI } from "../services/gemini";
 
 interface Exercise {
   id: string;
@@ -147,12 +148,37 @@ const MOCK_EXERCISES: Exercise[] = [
 ];
 
 export const Physiotherapy: React.FC = () => {
+  const { customProtocols, setCustomProtocols } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
   const [aiExercises, setAiExercises] = useState<Exercise[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [displayedDescription, setDisplayedDescription] = useState('');
   const [displayedSteps, setDisplayedSteps] = useState<string[]>([]);
+
+  const handleSaveProtocol = () => {
+    if (!selectedExercise) return;
+    
+    const newProtocol = {
+      id: `physio-${Date.now()}`,
+      therapy: 'Fisioterapia',
+      title: selectedExercise.name,
+      instructions: selectedExercise.description,
+      steps: (selectedExercise.steps || []).map((step, idx) => ({
+        order: idx + 1,
+        action: step,
+        detail: ''
+      })),
+      duration: selectedExercise.duration,
+      sessions: parseInt(selectedExercise.reps) || 1,
+      revaluationDays: 7,
+      exercises: [selectedExercise.name],
+      isCustom: true
+    };
+    
+    setCustomProtocols([...customProtocols, newProtocol]);
+    alert('Protocolo de fisioterapia salvo com sucesso na Biblioteca!');
+  };
 
   // Automatic narration and typing effect when an exercise is selected
   React.useEffect(() => {
@@ -199,7 +225,7 @@ export const Physiotherapy: React.FC = () => {
     
     setIsGenerating(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const ai = getGeminiAI();
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: `Gere uma lista de 3 a 5 exercícios de fisioterapia para a seguinte patologia ou condição: "${query}". 
@@ -417,10 +443,18 @@ export const Physiotherapy: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <button className="py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl flex items-center justify-center gap-2">
+                <button 
+                  onClick={() => {
+                    handleSaveProtocol();
+                  }}
+                  className="py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl flex items-center justify-center gap-2"
+                >
                   Adicionar ao Protocolo
                 </button>
-                <button className="py-4 bg-emerald-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-xl flex items-center justify-center gap-2">
+                <button 
+                  onClick={handleSaveProtocol}
+                  className="py-4 bg-emerald-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-xl flex items-center justify-center gap-2"
+                >
                   <Save size={16} /> Salvar
                 </button>
               </div>

@@ -4,9 +4,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useStore } from '../store/useStore';
 import { generateQuantumAnalysisReport, findHardwareSetup } from '../services/gemini';
 import { speakText } from '../services/tts';
-import { Activity, Zap, RefreshCw, CheckCircle2, AlertCircle, Sparkles, Hand, Waves, ExternalLink, Search, Download, Loader2, FileText, FileDown, Cloud } from 'lucide-react';
+import { Activity, Zap, RefreshCw, CheckCircle2, AlertCircle, Sparkles, Hand, Waves, ExternalLink, Search, Download, Loader2, FileText, FileDown, Cloud, FolderArchive } from 'lucide-react';
 import { translations } from '../translations';
-import { generateConsultationPDF, generateConsultationWord } from '../services/documentGenerator';
+import { generateConsultationPDF, generateConsultationWord, generatePatientFolderZIP } from '../services/documentGenerator';
 
 const QUANTUM_INDICATORS = [
   { id: 'cardio', name: 'Cardiovascular e Cerebrovascular', category: 'Sistemas' },
@@ -38,25 +38,28 @@ export const QuantumResonanceModule: React.FC = () => {
   const [analysisReport, setAnalysisReport] = useState<(any & { searchLinks: { uri: string, title: string }[] }) | null>(null);
   const [isFindingSetup, setIsFindingSetup] = useState(false);
   const [setupInfo, setSetupInfo] = useState<{ text: string, links: { uri: string, title: string }[] } | null>(null);
-  const [isSaving, setIsSaving] = useState<'pdf' | 'word' | 'cloud' | null>(null);
+  const [isSaving, setIsSaving] = useState<'pdf' | 'word' | 'cloud' | 'zip' | null>(null);
 
   const isDeviceConnected = connectedDevices.some(d => d.isQuantum && d.status === 'connected');
 
-  const handleSaveLocal = async (type: 'pdf' | 'word') => {
+  const handleSaveLocal = async (type: 'pdf' | 'word' | 'zip') => {
     if (!patientData || !analysisReport) return;
     
     setIsSaving(type);
     const messages = {
       pdf: t.savePdf,
-      word: t.saveWord
+      word: t.saveWord,
+      zip: "Baixar Pasta ZIP"
     };
     speakText(messages[type], t.ttsInstruction);
     
     try {
       if (type === 'pdf') {
         await generateConsultationPDF(patientData, [], analysisReport, null);
-      } else {
+      } else if (type === 'word') {
         await generateConsultationWord(patientData, [], analysisReport);
+      } else if (type === 'zip') {
+        await generatePatientFolderZIP(patientData, [], analysisReport, null);
       }
       
       setIsSaving(null);
@@ -393,7 +396,7 @@ export const QuantumResonanceModule: React.FC = () => {
                       )}
 
                       <div className="grid grid-cols-1 gap-3">
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-3 gap-3">
                           <button 
                             onClick={() => handleSaveLocal('pdf')}
                             disabled={!!isSaving}
@@ -409,6 +412,14 @@ export const QuantumResonanceModule: React.FC = () => {
                           >
                             {isSaving === 'word' ? <RefreshCw size={14} className="animate-spin" /> : <FileText size={14} className="text-blue-400" />}
                             Word
+                          </button>
+                          <button 
+                            onClick={() => handleSaveLocal('zip')}
+                            disabled={!!isSaving}
+                            className="bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-500/30 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest flex flex-col items-center justify-center gap-1 transition-all disabled:opacity-20"
+                          >
+                            {isSaving === 'zip' ? <RefreshCw size={14} className="animate-spin" /> : <FolderArchive size={14} className="text-purple-400" />}
+                            Pasta
                           </button>
                         </div>
                         

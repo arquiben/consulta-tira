@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Camera, Heart, Activity, AlertCircle, CheckCircle2, RefreshCw, Fingerprint } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
+import { getGeminiAI } from "../services/gemini";
 
 interface BloodPressureMonitorProps {
   onSave?: (data: { systolic: number; diastolic: number; pulse: number }) => void;
@@ -182,7 +183,7 @@ export const BloodPressureMonitor: React.FC<BloodPressureMonitorProps> = ({ onSa
     else if (systolic >= 130 || diastolic >= 80) status = "Elevada";
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const ai = getGeminiAI();
       const prompt = `Como um assistente de saúde inteligente, forneça um conselho breve (máximo 20 palavras) para um paciente com pressão arterial de ${systolic}/${diastolic} mmHg e pulso de ${pulse} bpm. O status é ${status}. Seja profissional e encorajador.`;
       
       const response = await ai.models.generateContent({

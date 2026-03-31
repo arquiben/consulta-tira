@@ -280,9 +280,18 @@ export const useStore = create<AppState>()(
             data
           );
           handleReportGenerated(report);
-        } catch (error) {
+        } catch (error: any) {
           console.error("Erro na análise automática:", error);
-          alert("Erro ao processar análise automática. Tente novamente.");
+          const isApiKeyMissing = error.message?.includes('GEMINI_API_KEY is not defined');
+          const isApiKeyInvalid = error.message?.includes('403') || error.message?.includes('API_KEY_INVALID');
+          
+          if (isApiKeyMissing) {
+            alert("Erro: Chave da API (GEMINI_API_KEY) não configurada no Netlify. Adicione a variável de ambiente nas configurações do seu deploy.");
+          } else if (isApiKeyInvalid) {
+            alert("Erro: Chave da API inválida ou sem permissão. Verifique se a chave está correta e se tem saldo/permissões.");
+          } else {
+            alert(`Erro ao processar análise automática: ${error.message || 'Erro desconhecido'}. Verifique sua conexão e tente novamente.`);
+          }
         } finally {
           set({ isAnalyzing: false });
         }
@@ -313,9 +322,18 @@ export const useStore = create<AppState>()(
 
           const report = await generateTherapyReport(prompt, undefined, patientData);
           handleReportGenerated(report);
-        } catch (error) {
+        } catch (error: any) {
           console.error("Erro na geração automática de protocolo:", error);
-          alert("Erro ao gerar protocolo automático. Tente novamente.");
+          const isApiKeyMissing = error.message?.includes('GEMINI_API_KEY is not defined');
+          const isApiKeyInvalid = error.message?.includes('403') || error.message?.includes('API_KEY_INVALID');
+          
+          if (isApiKeyMissing) {
+            alert("Erro: Chave da API (GEMINI_API_KEY) não configurada no Netlify. Adicione a variável de ambiente nas configurações do seu deploy.");
+          } else if (isApiKeyInvalid) {
+            alert("Erro: Chave da API inválida ou sem permissão. Verifique se a chave está correta e se tem saldo/permissões.");
+          } else {
+            alert("Erro ao gerar protocolo automático. Verifique sua conexão e tente novamente.");
+          }
         } finally {
           set({ isAnalyzing: false });
         }

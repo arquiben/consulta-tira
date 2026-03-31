@@ -4,13 +4,13 @@ import { GoogleGenAI, LiveServerMessage, Modality, GenerateContentResponse } fro
 import { Message, PatientData, AnalysisReport, ClinicSettings } from '../types';
 import { translations } from '../translations';
 import { useStore } from '../store/useStore';
-import { speakText } from '../services/tts';
+import { speakText, stopAllAudio as stopGlobalAudio } from '../services/tts';
 import { generateTherapyReport, generateFollowUpQuestions, getGeminiAI, withRetry } from '../services/gemini';
-import { Sparkles, MessageSquarePlus, Send, Mic, FileDown, FileText, Cloud, RefreshCw, Save, AlertTriangle, Play, Pause, Square, Search, Microscope, Volume2, FileSignature } from 'lucide-react';
+import { Sparkles, MessageSquarePlus, Send, Mic, FileDown, FileText, Cloud, RefreshCw, Save, AlertTriangle, Play, Pause, Square, Search, Microscope, Volume2, FileSignature, FolderArchive } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-import { generateConsultationPDF, generateConsultationWord } from '../services/documentGenerator';
+import { generateConsultationPDF, generateConsultationWord, generatePatientFolderZIP } from '../services/documentGenerator';
 
 interface ConsultationProps {
   patientData: PatientData | null;
@@ -73,7 +73,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
   const [isNarrationPaused, setIsNarrationPaused] = useState(false);
   const [isGeneratingProtocol, setIsGeneratingProtocol] = useState(false);
   const [isAskingFollowUp, setIsAskingFollowUp] = useState(false);
-  const [isSaving, setIsSaving] = useState<'pdf' | 'word' | 'cloud' | null>(null);
+  const [isSaving, setIsSaving] = useState<'pdf' | 'word' | 'cloud' | 'zip' | null>(null);
   const [lastError, setLastError] = useState<{ message: string, type: 'network' | 'other' } | null>(null);
   
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -120,6 +120,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
   }, []);
 
   const stopAllAudio = () => {
+    stopGlobalAudio();
     if (chatAudioRef.current) {
       try { chatAudioRef.current.source.stop(); } catch(e) {}
       try { chatAudioRef.current.audioCtx.close(); } catch(e) {}
@@ -228,7 +229,6 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
         const result = await speakText(fullText, t.ttsInstruction);
         if (result) {
           chatAudioRef.current = result;
-          result.source.start();
           result.source.onended = () => {
             setIsSpeaking(false);
             // After AI finishes speaking, if there are messages, we could show quick actions
@@ -246,9 +246,21 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
       const isNetwork = err.message?.toLowerCase().includes('network') || 
                         err.message?.toLowerCase().includes('fetch') ||
                         err.message?.toLowerCase().includes('timeout');
+                        
+      const isApiKeyMissing = err.message?.includes('GEMINI_API_KEY is not defined');
+      const isApiKeyInvalid = err.message?.includes('403') || err.message?.includes('API_KEY_INVALID');
+      
+      let errorMessage = t.unexpectedError;
+      if (isApiKeyMissing) {
+        errorMessage = "Erro: Chave da API (GEMINI_API_KEY) não configurada no Netlify. Adicione a variável de ambiente nas configurações do seu deploy.";
+      } else if (isApiKeyInvalid) {
+        errorMessage = "Erro: Chave da API inválida ou sem permissão. Verifique se a chave está correta e se tem saldo/permissões.";
+      } else if (isNetwork) {
+        errorMessage = t.connectionError;
+      }
       
       setLastError({
-        message: isNetwork ? t.connectionError : t.unexpectedError,
+        message: errorMessage,
         type: isNetwork ? 'network' : 'other'
       });
     }
@@ -260,9 +272,6 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
     
     const introText = t.finishingConsultation;
     const introResult = await speakText(introText, t.ttsInstruction);
-    if (introResult) {
-      introResult.source.start();
-    }
 
     try {
       const conversationHistory = messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
@@ -273,9 +282,6 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
       // Narrate the summary of the generated report
       if (report.summary) {
         const summaryResult = await speakText(`${t.reportGeneratedSuccess} ${report.summary}`, t.ttsInstruction);
-        if (summaryResult) {
-          summaryResult.source.start();
-        }
       }
 
       if (onReportGenerated) {
@@ -314,7 +320,6 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
       const result = await speakText(questions, t.ttsInstruction);
       if (result) {
         chatAudioRef.current = result;
-        result.source.start();
         result.source.onended = () => setIsSpeaking(false);
       } else {
         setIsSpeaking(false);
@@ -327,7 +332,7 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
     }
   };
 
-  const handleSave = async (type: 'pdf' | 'word' | 'cloud' | 'full') => {
+  const handleSave = async (type: 'pdf' | 'word' | 'cloud' | 'zip' | 'full') => {
     if (!patientData || messages.length === 0) return;
     
     setIsSaving(type === 'full' ? 'cloud' : type);
@@ -338,6 +343,8 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
         await generateConsultationPDF(patientData, messages, examData);
       } else if (type === 'word') {
         await generateConsultationWord(patientData, messages, examData);
+      } else if (type === 'zip') {
+        await generatePatientFolderZIP(patientData, messages, examData);
       } else {
         // Cloud/Full save logic
         const updatedPatient = {
@@ -439,10 +446,12 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
       liveSessionRef.current = await sessionPromise;
     } catch (err: any) {
       console.error(err);
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      if (err.message?.includes('GEMINI_API_KEY is not defined')) {
+        setPermissionError("Erro: Chave da API (GEMINI_API_KEY) não configurada no Netlify.");
+      } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         setPermissionError("Acesso ao microfone negado. Por favor, permita o acesso nas configurações do seu navegador para usar a consulta por voz.");
       } else {
-        setPermissionError("Erro ao acessar o microfone. Verifique se ele está conectado corretamente.");
+        setPermissionError("Erro ao iniciar a consulta por voz. Verifique sua conexão e configurações.");
       }
       setIsLive(false);
     }
@@ -806,6 +815,14 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
                     title={t.nsoCloud}
                   >
                     {isSaving === 'cloud' ? <RefreshCw size={14} className="animate-spin" /> : <Cloud size={14} />}
+                  </button>
+                  <button 
+                    onClick={() => handleSave('zip')}
+                    disabled={!!isSaving}
+                    className="p-2 bg-white border border-slate-200 text-slate-400 hover:text-purple-600 rounded-lg transition-all"
+                    title="Baixar Pasta ZIP"
+                  >
+                    {isSaving === 'zip' ? <RefreshCw size={14} className="animate-spin" /> : <FolderArchive size={14} />}
                   </button>
                 </div>
               </div>

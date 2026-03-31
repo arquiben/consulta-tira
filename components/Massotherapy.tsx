@@ -3,6 +3,7 @@ import { Search, Activity, Play, Plus, ChevronRight, Info, Save, Wind, Sparkles,
 import { useStore } from '../store/useStore';
 import { narrateText } from '../services/NarrationService';
 import { GoogleGenAI, Type } from "@google/genai";
+import { getGeminiAI } from "../services/gemini";
 
 interface Massage {
   id: string;
@@ -74,12 +75,36 @@ const MOCK_MASSAGES: Massage[] = [
 ];
 
 export const Massotherapy: React.FC = () => {
+  const { customProtocols, setCustomProtocols } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedMassage, setSelectedMassage] = useState<Massage | null>(null);
   const [aiMassages, setAiMassages] = useState<Massage[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [displayedDescription, setDisplayedDescription] = useState('');
   const [displayedSteps, setDisplayedSteps] = useState<string[]>([]);
+
+  const handleSaveProtocol = () => {
+    if (!selectedMassage) return;
+    
+    const newProtocol = {
+      id: `masso-${Date.now()}`,
+      therapy: 'Massoterapia',
+      title: selectedMassage.name,
+      instructions: selectedMassage.description,
+      steps: (selectedMassage.steps || []).map((step, idx) => ({
+        order: idx + 1,
+        action: step,
+        detail: ''
+      })),
+      duration: selectedMassage.duration,
+      sessions: 1,
+      revaluationDays: 7,
+      isCustom: true
+    };
+    
+    setCustomProtocols([...customProtocols, newProtocol]);
+    alert('Protocolo de massoterapia salvo com sucesso na Biblioteca!');
+  };
 
   // Automatic narration and typing effect
   useEffect(() => {
@@ -120,7 +145,7 @@ export const Massotherapy: React.FC = () => {
     if (!query.trim()) return;
     setIsGenerating(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const ai = getGeminiAI();
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: `Gere uma lista de 2 a 3 protocolos de massoterapia para a seguinte condição: "${query}". 
@@ -319,10 +344,18 @@ export const Massotherapy: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <button className="py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl flex items-center justify-center gap-2">
+                <button 
+                  onClick={() => {
+                    handleSaveProtocol();
+                  }}
+                  className="py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl flex items-center justify-center gap-2"
+                >
                   Adicionar ao Protocolo
                 </button>
-                <button className="py-4 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl flex items-center justify-center gap-2">
+                <button 
+                  onClick={handleSaveProtocol}
+                  className="py-4 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl flex items-center justify-center gap-2"
+                >
                   <Save size={16} /> Salvar
                 </button>
               </div>

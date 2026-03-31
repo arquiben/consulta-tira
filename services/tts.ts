@@ -1,5 +1,6 @@
 
 import { GoogleGenAI, Modality } from "@google/genai";
+import { getGeminiAI } from "./gemini";
 
 function decode(base64: string) {
   const binaryString = atob(base64);
@@ -30,8 +31,25 @@ async function decodeAudioData(
   return buffer;
 }
 
+const activeSources = new Set<AudioBufferSourceNode>();
+let audioGeneration = 0;
+
+export function stopAllAudio() {
+  audioGeneration++;
+  activeSources.forEach(source => {
+    try {
+      source.stop();
+      source.disconnect();
+    } catch (e) {
+      // Ignore errors if already stopped
+    }
+  });
+  activeSources.clear();
+}
+
 export async function speakText(text: string, instruction: string = "Leia este texto com calma e clareza:") {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+  const currentGeneration = audioGeneration;
+  const ai = getGeminiAI();
   
   try {
     const response = await ai.models.generateContent({
@@ -47,6 +65,10 @@ export async function speakText(text: string, instruction: string = "Leia este t
       },
     });
 
+    if (currentGeneration !== audioGeneration) {
+      return null; // View changed or audio stopped while fetching
+    }
+
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     if (!base64Audio) return null;
 
@@ -56,6 +78,13 @@ export async function speakText(text: string, instruction: string = "Leia este t
     const source = audioCtx.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(audioCtx.destination);
+    
+    activeSources.add(source);
+    source.addEventListener('ended', () => {
+      activeSources.delete(source);
+    });
+    
+    source.start();
     
     return { source, audioCtx };
   } catch (error) {
@@ -93,7 +122,4 @@ export async function narrateProtocol(protocol: any) {
   }
 
   const result = await speakText(text, "Narração do Protocolo Clínico:");
-  if (result) {
-    result.source.start();
-  }
 }

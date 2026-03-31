@@ -4,9 +4,9 @@ import { useStore } from '../store/useStore';
 import { PatientData, IridologyZone, IridologyAnalysis, Protocol, TherapyType } from '../types';
 import { generateTherapyReport } from '../services/gemini';
 import { speakText } from '../services/tts';
-import { Camera, RefreshCw, Save, FileText, CheckCircle2, AlertCircle, Eye, Sparkles, Cloud, FileDown } from 'lucide-react';
+import { Camera, RefreshCw, Save, FileText, CheckCircle2, AlertCircle, Eye, Sparkles, Cloud, FileDown, FolderArchive } from 'lucide-react';
 import { translations } from '../translations';
-import { generateConsultationPDF, generateConsultationWord } from '../services/documentGenerator';
+import { generateConsultationPDF, generateConsultationWord, generatePatientFolderZIP } from '../services/documentGenerator';
 
 export const IridologyModule: React.FC = () => {
   const { patientData, saveIridologyAnalysis, setView, clinicSettings } = useStore();
@@ -32,7 +32,7 @@ export const IridologyModule: React.FC = () => {
     IRIDOLOGY_ZONES.map(z => ({ ...z, status: 'normal' }))
   );
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isSaving, setIsSaving] = useState<'pdf' | 'word' | 'cloud' | null>(null);
+  const [isSaving, setIsSaving] = useState<'pdf' | 'word' | 'cloud' | 'zip' | null>(null);
   const [analysisResult, setAnalysisResult] = useState<IridologyAnalysis | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -149,14 +149,15 @@ export const IridologyModule: React.FC = () => {
     }
   };
 
-  const handleSave = async (type: 'pdf' | 'word' | 'cloud') => {
+  const handleSave = async (type: 'pdf' | 'word' | 'cloud' | 'zip') => {
     if (!patientData || !analysisResult) return;
     
     setIsSaving(type);
     const messages = {
       pdf: t.generatingPdf || "Gerando laudo iridológico em PDF...",
       word: t.exportingWord || "Exportando análise de íris para Word...",
-      cloud: t.syncingCloud || "Sincronizando mapeamento com a nuvem NSO..."
+      cloud: t.syncingCloud || "Sincronizando mapeamento com a nuvem NSO...",
+      zip: "Gerando pasta ZIP do paciente..."
     };
     
     speakText(messages[type]);
@@ -179,6 +180,8 @@ export const IridologyModule: React.FC = () => {
         await generateConsultationPDF(patientData, [], mappedReport, analysisResult.imageUrl);
       } else if (type === 'word') {
         await generateConsultationWord(patientData, [], mappedReport);
+      } else if (type === 'zip') {
+        await generatePatientFolderZIP(patientData, [], mappedReport, analysisResult.imageUrl);
       } else {
         saveIridologyAnalysis(analysisResult);
         speakText(t.savedSuccess);
@@ -443,6 +446,14 @@ export const IridologyModule: React.FC = () => {
                     >
                       {isSaving === 'cloud' ? <RefreshCw className="animate-spin" size={14} /> : <Cloud size={14} className="text-blue-400" />}
                       Nuvem
+                    </button>
+                    <button 
+                      onClick={() => handleSave('zip')}
+                      disabled={!!isSaving}
+                      className="flex-1 bg-purple-50 text-purple-700 border border-purple-100 py-4 rounded-2xl font-black text-[9px] uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-purple-100 transition-all"
+                    >
+                      {isSaving === 'zip' ? <RefreshCw className="animate-spin" size={14} /> : <FolderArchive size={14} className="text-purple-600" />}
+                      Pasta
                     </button>
                   </div>
                   <button 

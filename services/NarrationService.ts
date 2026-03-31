@@ -1,6 +1,5 @@
 import { GoogleGenAI, Modality } from "@google/genai";
-
-const API_KEY = process.env.GEMINI_API_KEY || '';
+import { getGeminiAI } from "./gemini";
 
 function decodeBase64(base64: string) {
   const binaryString = atob(base64);
@@ -35,7 +34,7 @@ export const narrateText = async (text: string, voice: 'Kore' | 'Puck' | 'Charon
   if (!text) return;
 
   try {
-    const ai = new GoogleGenAI({ apiKey: API_KEY });
+    const ai = getGeminiAI();
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
       contents: [{ parts: [{ text: `Narrate the following content clearly: ${text}` }] }],

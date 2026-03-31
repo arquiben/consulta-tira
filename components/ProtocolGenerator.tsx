@@ -4,8 +4,8 @@ import { PatientData, AnalysisReport, Protocol } from '../types';
 import { generateTherapyReport } from '../services/gemini';
 import { speakText, narrateProtocol } from '../services/tts';
 import { useStore } from '../store/useStore';
-import { generateConsultationPDF, generateConsultationWord, generatePrescriptionPDF } from '../services/documentGenerator';
-import { FileDown, FileText, Cloud, Printer, CheckCircle2, Play, Share2 } from 'lucide-react';
+import { generateConsultationPDF, generateConsultationWord, generatePrescriptionPDF, generatePatientFolderZIP } from '../services/documentGenerator';
+import { FileDown, FileText, Cloud, Printer, CheckCircle2, Play, Share2, FolderArchive } from 'lucide-react';
 
 interface ProtocolGeneratorProps {
   patientData: PatientData | null;
@@ -18,7 +18,7 @@ export const ProtocolGenerator: React.FC<ProtocolGeneratorProps> = ({ patientDat
   const [analyzingExams, setAnalyzingExams] = useState(false);
   const [report, setReport] = useState<AnalysisReport | null>(examData || null);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isSaving, setIsSaving] = useState<'pdf' | 'word' | 'cloud' | null>(null);
+  const [isSaving, setIsSaving] = useState<'pdf' | 'word' | 'cloud' | 'zip' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
@@ -37,9 +37,16 @@ export const ProtocolGenerator: React.FC<ProtocolGeneratorProps> = ({ patientDat
       setReport(response);
       if (onReportGenerated) onReportGenerated(response);
       console.log("Protocolo gerado e enviado para processamento central.");
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError("Não foi possível gerar a inteligência clínica automática. Verifique a conexão.");
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (errorMessage.includes('GEMINI_API_KEY')) {
+        setError(errorMessage);
+      } else if (errorMessage.includes('403') || errorMessage.includes('API_KEY_INVALID')) {
+        setError("Erro: Chave da API inválida ou sem permissão.");
+      } else {
+        setError(`Não foi possível gerar a inteligência clínica automática: ${errorMessage || 'Verifique a conexão.'}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -74,9 +81,16 @@ export const ProtocolGenerator: React.FC<ProtocolGeneratorProps> = ({ patientDat
       setReport(finalReport);
       if (onReportGenerated) onReportGenerated(finalReport);
       speakText("Análise de exames concluída. Novos protocolos gerados.");
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError("Erro ao analisar exames. Verifique a conexão.");
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (errorMessage.includes('GEMINI_API_KEY')) {
+        setError(errorMessage);
+      } else if (errorMessage.includes('403') || errorMessage.includes('API_KEY_INVALID')) {
+        setError("Erro: Chave da API inválida ou sem permissão.");
+      } else {
+        setError(`Erro ao analisar exames: ${errorMessage || 'Verifique a conexão.'}`);
+      }
     } finally {
       setAnalyzingExams(false);
     }
@@ -93,14 +107,13 @@ export const ProtocolGenerator: React.FC<ProtocolGeneratorProps> = ({ patientDat
       const result = await speakText(textToSpeak);
       if (result) {
         audioRef.current = result;
-        result.source.start();
         setIsSpeaking(true);
         result.source.onended = () => setIsSpeaking(false);
       }
     }
   };
 
-  const handleSave = async (type: 'pdf' | 'word' | 'cloud') => {
+  const handleSave = async (type: 'pdf' | 'word' | 'cloud' | 'zip') => {
     if (!patientData || !report) return;
     
     setIsSaving(type);
@@ -112,6 +125,9 @@ export const ProtocolGenerator: React.FC<ProtocolGeneratorProps> = ({ patientDat
       } else if (type === 'word') {
         await generateConsultationWord(patientData, [], report);
         setToastMessage("Documento Word gerado com sucesso.");
+      } else if (type === 'zip') {
+        await generatePatientFolderZIP(patientData, [], report);
+        setToastMessage("Pasta do paciente gerada com sucesso.");
       } else {
         // Cloud save logic
         const { savePatient } = useStore.getState();
@@ -373,6 +389,14 @@ export const ProtocolGenerator: React.FC<ProtocolGeneratorProps> = ({ patientDat
         >
           {isSaving === 'word' ? <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div> : <FileText size={18} className="text-blue-600" />}
           Salvar Word
+        </button>
+        <button 
+          onClick={() => handleSave('zip')}
+          disabled={!!isSaving}
+          className="bg-white text-slate-900 px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-purple-50 transition-all flex items-center gap-3 border border-purple-100"
+        >
+          {isSaving === 'zip' ? <div className="w-4 h-4 border-2 border-purple-600 border-t-transparent rounded-full animate-spin"></div> : <FolderArchive size={18} className="text-purple-600" />}
+          Baixar Pasta
         </button>
         <button 
           onClick={() => handleSave('cloud')}

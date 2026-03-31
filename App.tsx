@@ -32,6 +32,7 @@ import { GlucoseMonitor } from './components/GlucoseMonitor';
 import { PatientData, AnalysisReport, ClinicSettings, UserRole, Protocol, LicenseType } from './types';
 import { translations } from './translations';
 
+import { stopAllAudio } from './services/tts';
 import { useStore, View } from './store/useStore';
 
 const App: React.FC = () => {
@@ -60,6 +61,10 @@ const App: React.FC = () => {
     updateDeviceStatus,
     isAnalyzing
   } = useStore();
+
+  useEffect(() => {
+    stopAllAudio();
+  }, [currentView]);
 
   /* 
   useEffect(() => {

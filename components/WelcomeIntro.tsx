@@ -41,7 +41,6 @@ export const WelcomeIntro: React.FC<WelcomeIntroProps> = ({ onFinish }) => {
 
       if (result) {
         audioRef.current = result;
-        result.source.start();
         setIsSpeaking(true);
         result.source.onended = () => {
           setIsSpeaking(false);

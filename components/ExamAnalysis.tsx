@@ -3,10 +3,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import { generateTherapyReport } from '../services/gemini';
 import { AnalysisReport, PatientData } from '../types';
 import { speakText } from '../services/tts';
-import { FileText, Download, Cloud, Share2, CheckCircle2, FileDown, Globe, RefreshCw, Usb, Search, Zap, AlertCircle, Activity, ChevronRight, Volume2, Trash2, Sparkles } from 'lucide-react';
+import { FileText, Download, Cloud, Share2, CheckCircle2, FileDown, Globe, RefreshCw, Usb, Search, Zap, AlertCircle, Activity, ChevronRight, Volume2, Trash2, Sparkles, FolderArchive } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { translations } from '../translations';
-import { generateConsultationPDF, generateConsultationWord } from '../services/documentGenerator';
+import { generateConsultationPDF, generateConsultationWord, generatePatientFolderZIP } from '../services/documentGenerator';
 
 interface ExamAnalysisProps {
   patientData: PatientData | null;
@@ -36,7 +36,7 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
   const [connectedDevice, setConnectedDevice] = useState<any | null>(null);
   const [telemetryValues, setTelemetryValues] = useState<number[]>([]);
   const [isCameraActive, setIsCameraActive] = useState(false);
-  const [isSaving, setIsSaving] = useState<'pdf' | 'word' | 'cloud' | null>(null);
+  const [isSaving, setIsSaving] = useState<'pdf' | 'word' | 'cloud' | 'zip' | null>(null);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -188,14 +188,15 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
     }
   };
 
-  const handleSave = async (type: 'pdf' | 'word' | 'cloud') => {
+  const handleSave = async (type: 'pdf' | 'word' | 'cloud' | 'zip') => {
     if (!patientData || !report) return;
     
     setIsSaving(type);
     const messages = {
       pdf: t.savePdf,
       word: t.saveWord,
-      cloud: t.syncingSystem
+      cloud: t.syncingSystem,
+      zip: "Gerando pasta ZIP do paciente..."
     };
     
     speakText(messages[type]);
@@ -205,6 +206,8 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
         await generateConsultationPDF(patientData, [], report, preview);
       } else if (type === 'word') {
         await generateConsultationWord(patientData, [], report);
+      } else if (type === 'zip') {
+        await generatePatientFolderZIP(patientData, [], report, preview);
       } else {
         // Cloud save logic
         const { savePatient } = useStore.getState();
@@ -578,6 +581,14 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
             >
               {isSaving === 'word' ? <RefreshCw size={18} className="animate-spin" /> : <FileText size={18} className="text-blue-600" />}
               Salvar Word
+            </button>
+            <button 
+              onClick={() => handleSave('zip')}
+              disabled={!!isSaving}
+              className="bg-purple-50 text-purple-700 px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-purple-100 transition-all flex items-center gap-3 border border-purple-200"
+            >
+              {isSaving === 'zip' ? <RefreshCw size={18} className="animate-spin" /> : <FolderArchive size={18} className="text-purple-600" />}
+              Baixar Pasta
             </button>
             <button 
               onClick={() => handleSave('cloud')}

@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Camera, Droplets, Activity, AlertCircle, CheckCircle2, RefreshCw, Fingerprint } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
+import { getGeminiAI } from "../services/gemini";
 
 interface GlucoseMonitorProps {
   onSave?: (data: { glucose: number; unit: string }) => void;
@@ -173,7 +174,7 @@ export const GlucoseMonitor: React.FC<GlucoseMonitorProps> = ({ onSave }) => {
     else if (glucose >= 100) status = "Pré-diabetes";
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const ai = getGeminiAI();
       const prompt = `Como um assistente de saúde inteligente, forneça um conselho breve (máximo 20 palavras) para um paciente com glicemia de ${glucose} ${unit}. O status é ${status}. Seja profissional e encorajador. Mencione que esta é uma estimativa via câmera e não substitui um glicosímetro clínico.`;
       
       const response = await ai.models.generateContent({

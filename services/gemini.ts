@@ -14,9 +14,14 @@ export interface AnatomicalExplanation {
 }
 
 export const getGeminiAI = () => {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+  const apiKey = 
+    process.env.GEMINI_API_KEY || 
+    process.env.API_KEY || 
+    import.meta.env.VITE_GEMINI_API_KEY || 
+    import.meta.env.VITE_API_KEY;
+    
   if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not defined in the environment.");
+    throw new Error("GEMINI_API_KEY is not defined in the environment. Please configure it in your deployment settings.");
   }
   return new GoogleGenAI({ apiKey });
 };
@@ -115,7 +120,7 @@ export async function generateAnatomicalImage(prompt: string): Promise<string> {
     },
     config: {
       imageConfig: {
-        aspectRatio: "1:1",
+        aspectRatio: "1:1"
       },
     },
   }));

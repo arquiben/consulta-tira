@@ -1,12 +1,55 @@
 
+import JSZip from 'jszip';
 import { jsPDF } from 'jspdf';
+
+export const generatePatientFolderZIP = async (patient: PatientData, messages: Message[], report?: AnalysisReport | null, image?: string | null) => {
+  const zip = new JSZip();
+  const folderName = `Paciente_${patient.name.replace(/\s+/g, '_')}`;
+  const folder = zip.folder(folderName);
+
+  if (!folder) return;
+
+  // 1. Consulta Completa em PDF
+  const pdfBlob = await generateConsultationPDF(patient, messages, report, image, true) as Blob;
+  folder.file(`Consulta_${patient.name.replace(/\s+/g, '_')}.pdf`, pdfBlob);
+
+  // 2. Consulta Completa em Word
+  const wordBlob = await generateConsultationWord(patient, messages, report, true) as Blob;
+  folder.file(`Consulta_${patient.name.replace(/\s+/g, '_')}.docx`, wordBlob);
+
+  // 3. Receitas / Protocolos Individuais
+  if (report?.suggestedProtocols) {
+    const receitasFolder = folder.folder('Receitas_e_Protocolos');
+    if (receitasFolder) {
+      for (const protocol of report.suggestedProtocols) {
+        const protocolBlob = await generatePrescriptionPDF(patient, protocol, true) as Blob;
+        receitasFolder.file(`Receita_${protocol.title.replace(/\s+/g, '_')}.pdf`, protocolBlob);
+      }
+    }
+  }
+
+  // 4. Imagem do Exame (se houver)
+  if (image) {
+    try {
+      const response = await fetch(image);
+      const imageBlob = await response.blob();
+      folder.file(`Exame_${patient.name.replace(/\s+/g, '_')}.jpg`, imageBlob);
+    } catch (e) {
+      console.error("Erro ao adicionar imagem ao ZIP", e);
+    }
+  }
+
+  // Gerar e baixar o ZIP
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+  saveAs(zipBlob, `${folderName}.zip`);
+};
 import autoTable from 'jspdf-autotable';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, WidthType, BorderStyle } from 'docx';
 import { saveAs } from 'file-saver';
 import { PatientData, AnalysisReport, Message, Protocol, FrequencyProtocol } from '../types';
 import { useStore } from '../store/useStore';
 
-export const generateConsultationPDF = async (patient: PatientData, messages: Message[], report?: AnalysisReport | null, image?: string | null) => {
+export const generateConsultationPDF = async (patient: PatientData, messages: Message[], report?: AnalysisReport | null, image?: string | null, returnBlob: boolean = false) => {
   const { clinicSettings } = useStore.getState();
   const doctorName = clinicSettings.therapistName || 'Dr. Terapeuta';
   const doc = new jsPDF();
@@ -234,6 +277,10 @@ export const generateConsultationPDF = async (patient: PatientData, messages: Me
     );
   }
 
+  if (returnBlob) {
+    return doc.output('blob');
+  }
+
   doc.save(`Consulta_${patient.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`);
 };
 
@@ -324,7 +371,7 @@ export const generateFrequencyPDF = async (patient: PatientData | null, protocol
   doc.save(`Protocolo_Frequencia_${protocol.name.replace(/\s+/g, '_')}.pdf`);
 };
 
-export const generatePrescriptionPDF = async (patient: PatientData, protocol: Protocol) => {
+export const generatePrescriptionPDF = async (patient: PatientData, protocol: Protocol, returnBlob: boolean = false) => {
   const { clinicSettings } = useStore.getState();
   const doctorName = clinicSettings.therapistName || 'Dr. Terapeuta';
   const doc = new jsPDF();
@@ -431,6 +478,10 @@ export const generatePrescriptionPDF = async (patient: PatientData, protocol: Pr
     { align: 'center' }
   );
 
+  if (returnBlob) {
+    return doc.output('blob');
+  }
+
   doc.save(`Receita_${patient.name.replace(/\s+/g, '_')}_${protocol.title.replace(/\s+/g, '_')}.pdf`);
 };
 
@@ -525,7 +576,7 @@ export const generateFrequencyWord = async (patient: PatientData | null, protoco
   saveAs(blob, `Protocolo_Frequencia_${protocol.name.replace(/\s+/g, '_')}.docx`);
 };
 
-export const generateConsultationWord = async (patient: PatientData, messages: Message[], report?: AnalysisReport | null) => {
+export const generateConsultationWord = async (patient: PatientData, messages: Message[], report?: AnalysisReport | null, returnBlob: boolean = false) => {
   const { clinicSettings } = useStore.getState();
   const doctorName = clinicSettings.therapistName || 'Dr. Terapeuta';
   const sections = [];
@@ -735,5 +786,6 @@ export const generateConsultationWord = async (patient: PatientData, messages: M
   });
 
   const blob = await Packer.toBlob(doc);
+  if (returnBlob) return blob;
   saveAs(blob, `Consulta_${patient.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.docx`);
 };

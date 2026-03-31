@@ -2,7 +2,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { PatientData, AnalysisReport, Protocol, IridologyAnalysis, ExamRequest } from '../types';
 import { useStore } from '../store/useStore';
-import { speakText } from '../services/tts';
+import { speakText, stopAllAudio } from '../services/tts';
 import { translations } from '../translations';
 import { 
   LineChart, 
@@ -31,9 +31,10 @@ import {
   FileText,
   Download,
   FileDown,
-  RefreshCw
+  RefreshCw,
+  FolderArchive
 } from 'lucide-react';
-import { generateConsultationPDF, generateConsultationWord } from '../services/documentGenerator';
+import { generateConsultationPDF, generateConsultationWord, generatePatientFolderZIP } from '../services/documentGenerator';
 import { generateExamPDF, generateExamWord } from '../services/documentService';
 
 interface ClinicalHistoryProps {
@@ -52,7 +53,7 @@ export const ClinicalHistory: React.FC<ClinicalHistoryProps> = ({ patientData, l
   const [isExporting, setIsExporting] = useState<string | null>(null);
   const audioRef = useRef<{ source: AudioBufferSourceNode, audioCtx: AudioContext } | null>(null);
 
-  const handleExport = async (report: any, format: 'pdf' | 'word') => {
+  const handleExport = async (report: any, format: 'pdf' | 'word' | 'zip') => {
     if (!patientData) return;
     const exportId = `${report.date}-${format}`;
     setIsExporting(exportId);
@@ -64,7 +65,7 @@ export const ClinicalHistory: React.FC<ClinicalHistoryProps> = ({ patientData, l
       if (isExamRequest) {
         if (format === 'pdf') {
           await generateExamPDF(patientData, report.exams);
-        } else {
+        } else if (format === 'word') {
           await generateExamWord(patientData, report.exams);
         }
       } else {
@@ -81,8 +82,10 @@ export const ClinicalHistory: React.FC<ClinicalHistoryProps> = ({ patientData, l
 
         if (format === 'pdf') {
           await generateConsultationPDF(patientData, [], reportToExport, isIridology ? report.imageUrl : null);
-        } else {
+        } else if (format === 'word') {
           await generateConsultationWord(patientData, [], reportToExport);
+        } else if (format === 'zip') {
+          await generatePatientFolderZIP(patientData, [], reportToExport, isIridology ? report.imageUrl : null);
         }
       }
     } catch (error) {
@@ -99,12 +102,11 @@ export const ClinicalHistory: React.FC<ClinicalHistoryProps> = ({ patientData, l
       return;
     }
     
-    audioRef.current?.source.stop();
+    stopAllAudio();
     
     const result = await speakText(text);
     if (result) {
       audioRef.current = result;
-      result.source.start();
       setIsSpeaking(id);
       result.source.onended = () => setIsSpeaking(null);
     }
@@ -394,6 +396,15 @@ export const ClinicalHistory: React.FC<ClinicalHistoryProps> = ({ patientData, l
                               title="Exportar Word"
                             >
                               {isExporting === `${report.date}-word` ? <RefreshCw className="animate-spin" size={18} /> : <FileDown size={18} />}
+                            </button>
+
+                            <button 
+                              onClick={() => handleExport(report, 'zip')}
+                              disabled={isExporting !== null}
+                              className="p-4 bg-slate-100 text-slate-600 rounded-2xl hover:bg-purple-50 hover:text-purple-600 transition-all shadow-lg flex items-center justify-center gap-2 flex-1 md:flex-none disabled:opacity-50"
+                              title="Baixar Pasta ZIP"
+                            >
+                              {isExporting === `${report.date}-zip` ? <RefreshCw className="animate-spin" size={18} /> : <FolderArchive size={18} />}
                             </button>
 
                             <button 

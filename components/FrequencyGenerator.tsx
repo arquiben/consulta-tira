@@ -225,8 +225,8 @@ export const FrequencyGenerator: React.FC = () => {
 
     try {
       const ai = getGeminiAI();
-      let prompt = `Sugira frequências de bio-ressonância (Rife, Solfeggio, etc.) para o paciente ${patientData.name} com as seguintes queixas: "${patientData.complaints}". 
-        Histórico: ${patientData.history}.`;
+      let prompt = `Sugira frequências de bio-ressonância (Rife, Solfeggio, etc.) para o paciente ${patientData.name || 'Paciente'} com as seguintes queixas: "${patientData.complaints || 'Não informadas'}". 
+        Histórico: ${patientData.history || 'Não informado'}.`;
       
       if (lastExamAnalysis) {
         prompt += `\nConsidere também os achados do último diagnóstico: ${lastExamAnalysis.summary}. 

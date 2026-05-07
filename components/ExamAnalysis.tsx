@@ -134,7 +134,7 @@ export const ExamAnalysis: React.FC<ExamAnalysisProps> = ({ patientData, onAnaly
     speakText(t.startingClinicalProcessing || "Iniciando processamento inteligente de dados clínicos.", t.ttsInstruction);
     
     try {
-      const prompt = `${contextStr} Paciente: ${patientData?.name}, Queixas: ${patientData?.complaints}. Gere protocolos detalhados de Biomagnetismo, Acupuntura Integrativa e Fitoterapia baseados nos achados deste documento.`;
+      const prompt = `${contextStr} Paciente: ${patientData?.name}, Queixas: ${patientData?.complaints}. Gere protocolos detalhados de Biomagnetismo, Acupuntura Integrativa, Fitoterapia, DIETA ENERGÉTICA NSO e HIDROTERAPIA NSO baseados nos achados deste documento.`;
       const result = await generateTherapyReport(prompt, preview?.split(',')[1], patientData);
       setReport(result);
       if (onAnalysisComplete) onAnalysisComplete(result);

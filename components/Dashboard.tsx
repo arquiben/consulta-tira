@@ -23,7 +23,8 @@ import {
   Waves,
   Target,
   Heart,
-  Droplets
+  Droplets,
+  FileText
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -78,6 +79,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <p className="text-slate-500 text-[10px] font-medium uppercase tracking-widest">{t.welcome}</p>
               <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
               <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">
+                {allPatients.reduce((sum, p) => sum + (p.consultationHistory?.length || 0), 0)} {t.consultations || 'Consultas'}
+              </p>
+              <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
+              <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">
                 {formattedDate}
               </p>
             </div>
@@ -185,6 +190,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <p className="text-xs font-black leading-tight uppercase">Glicemia</p>
           </div>
         </button>
+
+        <button 
+          onClick={() => setView('prescriptions')}
+          className="bg-purple-600 text-white p-3 rounded-xl flex flex-col items-start justify-between gap-2 shadow-lg shadow-purple-200 h-24"
+        >
+          <div className="w-7 h-7 bg-white/20 rounded-lg flex items-center justify-center">
+            <FileText size={16} />
+          </div>
+          <div className="text-left">
+            <p className="text-[7px] font-black uppercase tracking-widest opacity-80">{t.integratedPrescription}</p>
+            <p className="text-xs font-black leading-tight uppercase">Receitas IA</p>
+          </div>
+        </button>
       </div>
 
       {/* Active Patient Card */}
@@ -213,6 +231,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 >
                   {t.analyze}
                 </button>
+                <button 
+                  onClick={() => setView('prescriptions')}
+                  className="flex-1 bg-purple-500 text-white py-2 px-2 rounded-lg font-black text-[8px] uppercase tracking-widest whitespace-nowrap shadow-lg shadow-purple-900/20"
+                >
+                  <div className="flex items-center justify-center gap-1">
+                    <Sparkles size={10} />
+                    {t.integratedPrescription.split(' ')[0]}
+                  </div>
+                </button>
                 {isInternal && (
                   <button 
                     onClick={() => setView('exam_request')}
@@ -221,12 +248,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     {t.requestExams}
                   </button>
                 )}
-                <button 
-                  onClick={() => setView('mapping')}
-                  className="flex-1 bg-white/10 border border-white/20 text-white py-2 px-2 rounded-lg font-black text-[8px] uppercase tracking-widest whitespace-nowrap"
-                >
-                  {t.map}
-                </button>
               </div>
               
               {/* Automatic Protocol Generation Button */}

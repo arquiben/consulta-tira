@@ -32,7 +32,7 @@ export const ProtocolGenerator: React.FC<ProtocolGeneratorProps> = ({ patientDat
     setLoading(true);
     setError(null);
     try {
-      const prompt = "Gere uma análise de fusão Neuro-Quantum completa baseada nas queixas e marcadores anatômicos do paciente. Inclua protocolos detalhados de Biomagnetismo, Acupuntura, Fitoterapia e Hidroterapia NSO.";
+      const prompt = "Gere uma análise de fusão Neuro-Quantum completa baseada nas queixas e marcadores anatômicos do paciente. Inclua protocolos detalhados de Biomagnetismo, Acupuntura, Fitoterapia, DIETA ENERGÉTICA NSO e HIDROTERAPIA NSO.";
       const response = await generateTherapyReport(prompt, undefined, patientData);
       setReport(response);
       if (onReportGenerated) onReportGenerated(response);
@@ -85,9 +85,11 @@ export const ProtocolGenerator: React.FC<ProtocolGeneratorProps> = ({ patientDat
       console.error(err);
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (errorMessage.includes('GEMINI_API_KEY')) {
-        setError(errorMessage);
+        setError("Erro: Chave da API (GEMINI_API_KEY) não configurada. Se estiver no Netlify, adicione a variável de ambiente nas configurações do site (Site Configuration > Environment Variables).");
       } else if (errorMessage.includes('403') || errorMessage.includes('API_KEY_INVALID')) {
-        setError("Erro: Chave da API inválida ou sem permissão.");
+        setError("Erro: Chave da API inválida ou sem permissão. Verifique se a chave está correta no painel do Netlify.");
+      } else if (errorMessage.includes('429') || errorMessage.includes('QUOTA_EXCEEDED')) {
+        setError("Limite de uso atingido (Erro 429). No plano gratuito, o limite é baixo. Para resolver, aguarde alguns minutos ou configure uma chave de API própria no painel do Netlify.");
       } else {
         setError(`Erro ao analisar exames: ${errorMessage || 'Verifique a conexão.'}`);
       }
@@ -171,7 +173,9 @@ export const ProtocolGenerator: React.FC<ProtocolGeneratorProps> = ({ patientDat
     const doctorName = clinicSettings.therapistName || 'Dr. Terapeuta';
     
     let shareText = `*CONSULFISION - RELATÓRIO CLÍNICO*\n\n`;
-    shareText += `*Paciente:* ${patientData.name}\n`;
+    if (patientData) {
+      shareText += `*Paciente:* ${patientData?.name || 'Paciente'}\n`;
+    }
     shareText += `*Profissional:* ${doctorName}\n`;
     shareText += `*Data:* ${new Date().toLocaleDateString('pt-BR')}\n\n`;
     
@@ -205,7 +209,7 @@ export const ProtocolGenerator: React.FC<ProtocolGeneratorProps> = ({ patientDat
     if (navigator.share) {
       try {
         await navigator.share({
-          title: `Relatório Consulfision - ${patientData.name}`,
+          title: `Relatório Consulfision - ${patientData?.name || 'Paciente'}`,
           text: shareText,
         });
       } catch (err) {
@@ -317,7 +321,7 @@ export const ProtocolGenerator: React.FC<ProtocolGeneratorProps> = ({ patientDat
           <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Pronto para Análise</h3>
           <p className="text-slate-500 font-medium leading-relaxed">
             {patientData 
-                ? `O paciente ${patientData.name} está ativo, mas o protocolo ainda não foi gerado.` 
+                ? `O paciente ${patientData?.name || 'selecionado'} está ativo, mas o protocolo ainda não foi gerado.` 
                 : "Selecione um paciente ou preencha a ficha clínica para gerar o protocolo."}
           </p>
           {error && <p className="text-red-500 font-black text-[10px] uppercase tracking-widest bg-red-50 p-3 rounded-xl">{error}</p>}
@@ -638,7 +642,11 @@ export const ProtocolGenerator: React.FC<ProtocolGeneratorProps> = ({ patientDat
                                 <div className="flex justify-between items-center mb-4 print:hidden">
                                    <p className="text-[9px] font-black text-rose-800 uppercase tracking-widest">Receituário Detalhado</p>
                                    <button 
-                                     onClick={() => generatePrescriptionPDF(patientData!, p)}
+                                     onClick={() => {
+                              if (patientData) {
+                                generatePrescriptionPDF(patientData, p);
+                              }
+                            }}
                                      className="bg-rose-600 text-white px-3 py-1.5 rounded-lg font-black text-[8px] uppercase tracking-widest flex items-center gap-2 hover:bg-rose-700 transition-all shadow-md"
                                    >
                                      <FileDown size={12} />

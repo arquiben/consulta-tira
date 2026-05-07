@@ -53,7 +53,7 @@ export const MedicalExamRequest: React.FC<MedicalExamRequestProps> = ({ patientD
     
     setTimeout(() => {
       const suggestions: string[] = [];
-      const complaints = patientData.complaints.toLowerCase();
+      const complaints = (patientData.complaints || '').toLowerCase();
       
       if (complaints.includes('dor') || complaints.includes('inflamação')) {
         suggestions.push("PCR Ultrassensível", "Hemograma Completo");

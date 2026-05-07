@@ -5,7 +5,7 @@ import { translations } from '../translations';
 import { OFFICIAL_NSO_LIBRARY } from '../services/libraryNSO';
 import { getSupabase } from '../services/supabase';
 import { useStore } from '../store/useStore';
-import { Cloud, CheckCircle2, AlertCircle, RefreshCw, User, Clock, Globe, Shield, Save, Download, Upload, Share2, GitBranch, Layout, Globe2, Smartphone, Lock } from 'lucide-react';
+import { Cloud, CheckCircle2, AlertCircle, RefreshCw, User, Clock, Globe, Shield, Save, Download, Upload, Share2, GitBranch, Layout, Globe2, Smartphone, Lock, Trash2 } from 'lucide-react';
 import { exportToGit, exportToGlide, exportToNetlify, exportToFlutter } from '@/services/exportService';
 
 interface SettingsProps {
@@ -284,12 +284,41 @@ export const Settings: React.FC<SettingsProps> = ({ settings, setSettings }) => 
                 >
                   <Download size={14} /> {backupProgress > 0 ? `${t.savingSnapshot} ${backupProgress}%` : t.createSnapshot}
                 </button>
-                <button 
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full bg-slate-800 text-white border border-slate-700 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-700 transition-all flex items-center justify-center gap-2"
-                >
-                  <Upload size={14} /> {t.loadSnapshot}
-                </button>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full bg-slate-800 text-white border border-slate-700 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-700 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Upload size={14} /> {t.loadSnapshot}
+                  </button>
+                  <button 
+                    onClick={async () => {
+                      if (window.confirm("Deseja restaurar todos os dados da Nuvem NSO (Supabase)? Isso substituirá os dados locais atuais.")) {
+                        const { syncFromSupabase } = useStore.getState();
+                        await syncFromSupabase();
+                        alert("Dados restaurados com sucesso da Nuvem!");
+                        window.location.reload();
+                      }
+                    }}
+                    disabled={supabaseStatus !== 'connected'}
+                    className="w-full bg-blue-600/20 text-blue-400 border border-blue-500/30 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-600/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <RefreshCw size={14} /> Restaurar Nuvem
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (window.confirm("ATENÇÃO: Isso apagará TODOS os dados salvos LOCALMENTE no navegador. Certifique-se de que seus dados estão sincronizados com a Nuvem Supabase antes de prosseguir. Deseja Continuar?")) {
+                        localStorage.clear();
+                        indexedDB.deleteDatabase('nsofision-storage');
+                        alert("Cache local limpo. O sistema irá reiniciar.");
+                        window.location.reload();
+                      }
+                    }}
+                    className="w-full bg-red-600/10 text-red-400 border border-red-500/20 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-red-600/20 transition-all flex items-center justify-center gap-2 mt-4"
+                  >
+                    <Trash2 size={14} /> Wipe Local Cache (Reset)
+                  </button>
+                </div>
                 <input 
                     type="file" 
                     ref={fileInputRef} 

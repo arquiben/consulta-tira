@@ -14,11 +14,20 @@ export interface AnatomicalExplanation {
 }
 
 export const getGeminiAI = () => {
-  const apiKey = 
-    process.env.GEMINI_API_KEY || 
-    process.env.API_KEY || 
-    import.meta.env.VITE_GEMINI_API_KEY || 
-    import.meta.env.VITE_API_KEY;
+  let apiKey = "";
+  try {
+    apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_API_KEY;
+  } catch (e) {
+    // Ignore
+  }
+  
+  if (!apiKey) {
+    try {
+      apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || "";
+    } catch (e) {
+      // Ignore
+    }
+  }
     
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not defined in the environment. Please configure it in your deployment settings.");
@@ -73,12 +82,12 @@ DIRETRIZES DE ANÁLISE:
 3. FITOTERAPIA: Recomende plantas medicinais (fitoterápicos) adequados para o quadro clínico, fornecendo uma receita clara.
 4. FARMACOLOGIA: Liste fármacos que podem ser relevantes para a patologia analisada, fornecendo uma prescrição (receita) detalhada e sugerindo consulta médica se necessário.
 5. NUTRIÇÃO & SUPLEMENTAÇÃO: Para QUALQUER patologia (incluindo Câncer, AVC, Próstata), forneça orientações de DIETA, MINERAIS e VITAMINAS. 
-   - Inclua foco em ONCOLOGIA HOLÍSTICA quando aplicável.
-   - Inclua DIETA ENERGÉTICA para restaurar a vitalidade do paciente.
-6. HIDROTERAPIA NSO: Sempre verifique a hidratação e recomende o protocolo de 30 dias se necessário.
+   - Inclua OBRIGATORIAMENTE um protocolo de DIETA ENERGÉTICA NSO para restaurar a vitalidade do paciente.
+6. HIDROTERAPIA NSO: Sempre verifique a hidratação e recomende OBRIGATORIAMENTE o protocolo de HIDROTERAPIA NSO (banhos, temperaturas, aditivos) adequado ao quadro.
 
 IMPORTANTE: 
 - Sua resposta deve ser estritamente em JSON válido, seguindo o esquema fornecido.
+- Os protocolos de DIETA ENERGÉTICA e HIDROTERAPIA NSO devem aparecer como itens separados na lista de 'suggestedProtocols' para que o sistema possa exibi-los corretamente.
 - Evite termos genéricos como "objeto" ou "coisa". Seja específico sobre a patologia ou doença analisada.
 - Sempre forneça uma "Receita" clara nos protocolos sugeridos.
 
@@ -107,7 +116,7 @@ DIRETRIZ DE COMPARAÇÃO: Se houver histórico de consultas anteriores, realize 
 
 export async function generateAnatomicalImage(prompt: string): Promise<string> {
   const ai = getGeminiAI();
-  const model = "gemini-2.5-flash-image";
+  const model = "gemini-3-flash-preview";
 
   const response = await withRetry(() => ai.models.generateContent({
     model,
@@ -135,7 +144,7 @@ export async function generateAnatomicalImage(prompt: string): Promise<string> {
 
 export async function generateAnatomicalExplanation(prompt: string, patient?: PatientData | null): Promise<AnatomicalExplanation> {
   const ai = getGeminiAI();
-  const model = "gemini-3-flash-preview";
+  const model = "gemini-1.5-flash";
 
   const context = patient ? `Paciente: ${patient.name}, Queixas: ${patient.complaints}, Histórico: ${patient.history}` : 'Contexto geral';
 
@@ -183,7 +192,7 @@ export async function generateAnatomicalExplanation(prompt: string, patient?: Pa
 
 export async function generateTTS(text: string): Promise<string> {
   const ai = getGeminiAI();
-  const model = "gemini-2.5-flash-preview-tts";
+  const model = "gemini-1.5-flash";
 
   const response = await withRetry(() => ai.models.generateContent({
     model,
@@ -207,7 +216,7 @@ export async function generateTTS(text: string): Promise<string> {
 
 export async function generateFollowUpQuestions(conversationHistory: string, patient?: PatientData | null): Promise<string> {
   const ai = getGeminiAI();
-  const model = "gemini-3.1-pro-preview";
+  const model = "gemini-1.5-pro";
 
   const contextStr = patient 
     ? `PACIENTE: ${patient.name}, Idade: ${patient.age}, Queixas: ${patient.complaints}, Histórico: ${patient.history}` 
@@ -238,7 +247,7 @@ Responda apenas com as perguntas, formatadas em uma lista clara.`;
 
 export async function findHardwareSetup(deviceName: string): Promise<{ text: string, links: { uri: string, title: string }[] }> {
   const ai = getGeminiAI();
-  const model = "gemini-3-flash-preview";
+  const model = "gemini-1.5-flash";
 
   const prompt = `Localize o link de download oficial ou instruções de instalação (setup) para o seguinte dispositivo de bioressonância: "${deviceName}". 
   Procure por drivers, manuais e software de instalação. 
@@ -267,7 +276,7 @@ export async function findHardwareSetup(deviceName: string): Promise<{ text: str
 
 export async function generateQuantumAnalysisReport(results: any[], patient?: PatientData | null): Promise<AnalysisReport & { searchLinks: { uri: string, title: string }[] }> {
   const ai = getGeminiAI();
-  const model = "gemini-3-flash-preview";
+  const model = "gemini-1.5-flash";
 
   const resultsStr = results.map(r => `- ${r.name}: ${r.value}`).join('\n');
   const patientStr = patient ? `Paciente: ${patient.name}, Idade: ${patient.age}, Queixas: ${patient.complaints}` : 'Paciente não identificado';
@@ -339,9 +348,142 @@ export async function generateQuantumAnalysisReport(results: any[], patient?: Pa
   }
 }
 
+export interface BiomagnetismPair {
+  point1: string;
+  point2: string;
+  pathogen?: string;
+  description: string;
+}
+
+export interface BiomagnetismGuide {
+  pathology: string;
+  pairs: BiomagnetismPair[];
+  explanation: string;
+}
+
+export async function generateBiomagnetismGuide(pathology: string): Promise<BiomagnetismGuide> {
+  const ai = getGeminiAI();
+  const model = "gemini-1.5-flash";
+
+  const response = await withRetry(() => ai.models.generateContent({
+    model,
+    contents: { 
+      parts: [{
+        text: `Gere um guia de biomagnetismo para a seguinte patologia: "${pathology}". 
+        Identifique os pares biomagnéticos (Ponto 1 -> Ponto 2) recomendados.
+        Para cada par, forneça o patógeno relacionado (se houver) e uma breve descrição da função do par.
+        Forneça também uma explicação geral sobre o protocolo.` 
+      }]
+    },
+    config: {
+      systemInstruction: "Você é um especialista em Biomagnetismo Clínico. Sua missão é fornecer protocolos precisos de pares biomagnéticos para patologias específicas. Responda estritamente em JSON.",
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          pathology: { type: Type.STRING },
+          explanation: { type: Type.STRING },
+          pairs: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                point1: { type: Type.STRING },
+                point2: { type: Type.STRING },
+                pathogen: { type: Type.STRING },
+                description: { type: Type.STRING }
+              },
+              required: ["point1", "point2", "description"]
+            }
+          }
+        },
+        required: ["pathology", "explanation", "pairs"]
+      }
+    }
+  }));
+
+  return JSON.parse(response.text);
+}
+
+export async function analyzePlant(imageBase64: string): Promise<any> {
+  const ai = getGeminiAI();
+  const model = "gemini-1.5-flash";
+
+  const prompt = `Você é o motor de inteligência por trás do BioScan Pro. Sua função é analisar esta foto de planta e fornecer um relatório completo e profissional.
+
+  DIRETRIZES DE SAÍDA (JSON):
+  1. Identificação: Nome científico e popular (em vários idiomas se possível). Verifique se já foi catalogada em bases globais (IPNI/Index Fungorum). Se não, sugira o status de 'Nova Descoberta'.
+  2. Análise Morfológica: Propriedades medicinais e fórmulas químicas (se conhecidas) detalhadas SEPARADAMENTE para: Raízes, Caules/Cascas, Folhas, Flores, Frutos e Sementes.
+  3. Farmacopeia: Modo de preparo exato (Infusão, Decocção, Maceração), dosagem recomendada por peso e frequência de uso.
+  4. Interação e Sinergia: Análise dos benefícios ou riscos de misturar a planta analisada com outras plantas específicas.
+  5. Geolocalização Sugerida: País, Região e Localidade provável com base na espécie.
+
+  Responda estritamente em JSON válido.`;
+
+  const response = await withRetry(() => ai.models.generateContent({
+    model,
+    contents: {
+      parts: [
+        { text: prompt },
+        {
+          inlineData: {
+            data: imageBase64.includes('base64,') ? imageBase64.split('base64,')[1] : imageBase64,
+            mimeType: "image/jpeg"
+          }
+        }
+      ]
+    },
+    config: {
+      temperature: 0.1,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          scientificName: { type: Type.STRING },
+          popularNames: { type: Type.ARRAY, items: { type: Type.STRING } },
+          isCataloged: { type: Type.BOOLEAN },
+          globalDatabaseStatus: { type: Type.STRING },
+          morphology: {
+            type: Type.OBJECT,
+            properties: {
+              roots: { type: Type.OBJECT, properties: { properties: { type: Type.STRING }, chemicalFormulas: { type: Type.ARRAY, items: { type: Type.STRING } } } },
+              stems: { type: Type.OBJECT, properties: { properties: { type: Type.STRING }, chemicalFormulas: { type: Type.ARRAY, items: { type: Type.STRING } } } },
+              leaves: { type: Type.OBJECT, properties: { properties: { type: Type.STRING }, chemicalFormulas: { type: Type.ARRAY, items: { type: Type.STRING } } } },
+              flowers: { type: Type.OBJECT, properties: { properties: { type: Type.STRING }, chemicalFormulas: { type: Type.ARRAY, items: { type: Type.STRING } } } },
+              fruits: { type: Type.OBJECT, properties: { properties: { type: Type.STRING }, chemicalFormulas: { type: Type.ARRAY, items: { type: Type.STRING } } } },
+              seeds: { type: Type.OBJECT, properties: { properties: { type: Type.STRING }, chemicalFormulas: { type: Type.ARRAY, items: { type: Type.STRING } } } }
+            }
+          },
+          pharmacopoeia: {
+            type: Type.OBJECT,
+            properties: {
+              method: { type: Type.STRING, enum: ["Infusão", "Decocção", "Maceração", "Outro"] },
+              instructions: { type: Type.STRING },
+              dosagePerWeight: { type: Type.STRING },
+              frequency: { type: Type.STRING }
+            }
+          },
+          synergy: { type: Type.STRING },
+          geolocation: {
+            type: Type.OBJECT,
+            properties: {
+              country: { type: Type.STRING },
+              region: { type: Type.STRING },
+              locality: { type: Type.STRING }
+            }
+          }
+        },
+        required: ["scientificName", "popularNames", "morphology", "pharmacopoeia"]
+      }
+    }
+  }));
+
+  return JSON.parse(response.text);
+}
+
 export async function generateTherapyReport(prompt: string, imagesBase64?: string | string[], patient?: PatientData | null): Promise<AnalysisReport> {
   const ai = getGeminiAI();
-  const model = "gemini-3.1-pro-preview";
+  const model = "gemini-1.5-pro";
 
   const parts: any[] = [{ text: enrichPromptWithPatient(prompt, patient) }];
   

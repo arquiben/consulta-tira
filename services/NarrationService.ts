@@ -36,7 +36,7 @@ export const narrateText = async (text: string, voice: 'Kore' | 'Puck' | 'Charon
   try {
     const ai = getGeminiAI();
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
+      model: "gemini-3.1-flash-tts-preview",
       contents: [{ parts: [{ text: `Narrate the following content clearly: ${text}` }] }],
       config: {
         responseModalities: [Modality.AUDIO],

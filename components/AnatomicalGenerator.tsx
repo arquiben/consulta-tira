@@ -1,10 +1,11 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { generateAnatomicalImage, generateAnatomicalExplanation, generateTTS, AnatomicalExplanation } from '../services/gemini';
+import { generateAnatomicalImage, generateAnatomicalExplanation, AnatomicalExplanation } from '../services/gemini';
 import { PatientData, AnalysisReport } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles, Download, RefreshCw, Image as ImageIcon, Volume2, VolumeX, Info, ListFilter, Target, Brain, Activity } from 'lucide-react';
 import { NSOFISION_NERO_POINTS, NSOPoint } from '../services/nsofisionPoints';
+import { speakText, stopAllAudio } from '../services/tts';
 
 interface AnatomicalGeneratorProps {
   patientData: PatientData | null;
@@ -16,74 +17,19 @@ export const AnatomicalGenerator: React.FC<AnatomicalGeneratorProps> = ({ patien
   const [selectedPoint, setSelectedPoint] = useState<NSOPoint | null>(null);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [explanation, setExplanation] = useState<AnatomicalExplanation | null>(null);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [activePoint, setActivePoint] = useState<number | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [showPointsList, setShowPointsList] = useState(false);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const audioBufferSourceRef = useRef<AudioBufferSourceNode | null>(null);
-
-  const playRawPCM = async (base64Data: string) => {
-    try {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-      }
-      
-      const ctx = audioContextRef.current;
-      
-      // Converter base64 para ArrayBuffer
-      const binaryString = window.atob(base64Data);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      
-      // Converter PCM 16-bit para Float32
-      const int16Array = new Int16Array(bytes.buffer);
-      const float32Array = new Float32Array(int16Array.length);
-      for (let i = 0; i < int16Array.length; i++) {
-        float32Array[i] = int16Array[i] / 32768.0;
-      }
-      
-      const audioBuffer = ctx.createBuffer(1, float32Array.length, 24000);
-      audioBuffer.getChannelData(0).set(float32Array);
-      
-      if (audioBufferSourceRef.current) {
-        audioBufferSourceRef.current.stop();
-      }
-      
-      const source = ctx.createBufferSource();
-      source.buffer = audioBuffer;
-      
-      const gainNode = ctx.createGain();
-      gainNode.gain.value = isMuted ? 0 : 1;
-      
-      source.connect(gainNode);
-      gainNode.connect(ctx.destination);
-      
-      source.start();
-      audioBufferSourceRef.current = source;
-    } catch (e) {
-      console.error("Erro ao reproduzir PCM:", e);
-    }
-  };
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   useEffect(() => {
-    if (audioUrl && !isMuted) {
-      const base64Data = audioUrl.split(',')[1];
-      if (base64Data) {
-        playRawPCM(base64Data);
-      }
-    }
     return () => {
-      if (audioBufferSourceRef.current) {
-        audioBufferSourceRef.current.stop();
-      }
+      stopAllAudio();
     };
-  }, [audioUrl, isMuted]);
+  }, []);
 
   const handleGenerate = async () => {
     if (!prompt && !patientData && !selectedPoint) return;
@@ -91,8 +37,9 @@ export const AnatomicalGenerator: React.FC<AnatomicalGeneratorProps> = ({ patien
     setLoading(true);
     setError(null);
     setExplanation(null);
-    setAudioUrl(null);
     setActivePoint(null);
+    stopAllAudio();
+    setIsSpeaking(false);
 
     try {
       let finalPrompt = prompt;
@@ -121,18 +68,24 @@ export const AnatomicalGenerator: React.FC<AnatomicalGeneratorProps> = ({ patien
       setExplanation(expl);
 
       // Gerar áudio TTS
-      const audio = await generateTTS(expl.narration);
-      setAudioUrl(audio);
+      if (!isMuted) {
+        setIsSpeaking(true);
+        await speakText(expl.narration);
+        setIsSpeaking(false);
+      }
 
     } catch (err: any) {
       console.error(err);
       const isApiKeyMissing = err.message?.includes('GEMINI_API_KEY is not defined');
       const isApiKeyInvalid = err.message?.includes('403') || err.message?.includes('API_KEY_INVALID');
+      const isQuotaExceeded = err.message?.includes('429') || err.message?.includes('QUOTA_EXCEEDED');
       
       if (isApiKeyMissing) {
-        setError('Erro: Chave da API (GEMINI_API_KEY) não configurada no Netlify. Adicione a variável de ambiente nas configurações do seu deploy.');
+        setError('Erro: Chave da API (GEMINI_API_KEY) não configurada. Se estiver no Netlify, adicione a variável de ambiente nas configurações do site (Site Configuration > Environment Variables).');
       } else if (isApiKeyInvalid) {
-        setError('Erro: Chave da API inválida ou sem permissão. Verifique se a chave está correta e se tem saldo/permissões.');
+        setError('Erro: Chave da API inválida ou sem permissão. Verifique se a chave está correta no painel do Netlify.');
+      } else if (isQuotaExceeded) {
+        setError('Limite de uso atingido (Erro 429). No plano gratuito, o limite é baixo. Para resolver, aguarde alguns minutos ou configure uma chave de API própria no painel do Netlify.');
       } else {
         setError(`Falha ao gerar análise anatômica: ${err.message || 'Erro desconhecido'}. Tente novamente.`);
       }
@@ -479,10 +432,11 @@ export const AnatomicalGenerator: React.FC<AnatomicalGeneratorProps> = ({ patien
                       </div>
                       <div className="flex gap-2">
                         <button 
-                          onClick={() => {
-                            if (audioUrl) {
-                              const base64Data = audioUrl.split(',')[1];
-                              playRawPCM(base64Data);
+                          onClick={async () => {
+                            if (explanation?.narration) {
+                              setIsSpeaking(true);
+                              await speakText(explanation.narration);
+                              setIsSpeaking(false);
                             }
                           }}
                           className="p-2 bg-slate-200 text-slate-600 rounded-xl hover:bg-emerald-100 hover:text-emerald-600 transition-all"
@@ -514,13 +468,12 @@ export const AnatomicalGenerator: React.FC<AnatomicalGeneratorProps> = ({ patien
                      {isDownloading ? 'Processando...' : 'Baixar Imagem Completa'}
                    </button>
                    <button onClick={() => {
-                     setGeneratedImage(null);
-                     setExplanation(null);
-                     setAudioUrl(null);
-                     setSelectedPoint(null);
-                   }} className="bg-slate-50 text-slate-400 px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest">
-                     Limpar
-                   </button>
+                      setGeneratedImage(null);
+                      setExplanation(null);
+                      setSelectedPoint(null);
+                    }} className="bg-slate-50 text-slate-400 px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest">
+                      Limpar
+                    </button>
                 </div>
               </motion.div>
             ) : (

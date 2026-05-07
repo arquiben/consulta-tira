@@ -59,6 +59,7 @@ function encode(bytes: Uint8Array) {
 }
 
 export const Consultation: React.FC<ConsultationProps> = ({ patientData, onReportGenerated, onReopenReport, hasReport, examData, clinicSettings }) => {
+  const { setView } = useStore();
   const t = translations[clinicSettings.language || 'pt'] || translations.pt;
   const [messages, setMessages] = useState<Message[]>(patientData?.chatHistory || []);
   const [inputText, setInputText] = useState('');
@@ -82,6 +83,11 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
   const nextStartTimeRef = useRef(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const chatAudioRef = useRef<{ source: AudioBufferSourceNode, audioCtx: AudioContext } | null>(null);
+  const isPausedRef = useRef(isPaused);
+
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
 
   const timerIntervalRef = useRef<number | null>(null);
 
@@ -249,12 +255,15 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
                         
       const isApiKeyMissing = err.message?.includes('GEMINI_API_KEY is not defined');
       const isApiKeyInvalid = err.message?.includes('403') || err.message?.includes('API_KEY_INVALID');
+      const isQuotaExceeded = err.message?.includes('429') || err.message?.includes('QUOTA_EXCEEDED');
       
       let errorMessage = t.unexpectedError;
       if (isApiKeyMissing) {
-        errorMessage = "Erro: Chave da API (GEMINI_API_KEY) não configurada no Netlify. Adicione a variável de ambiente nas configurações do seu deploy.";
+        errorMessage = "Erro: Chave da API (GEMINI_API_KEY) não configurada. Se estiver no Netlify, adicione a variável de ambiente nas configurações do site (Site Configuration > Environment Variables).";
       } else if (isApiKeyInvalid) {
-        errorMessage = "Erro: Chave da API inválida ou sem permissão. Verifique se a chave está correta e se tem saldo/permissões.";
+        errorMessage = "Erro: Chave da API inválida ou sem permissão. Verifique se a chave está correta no painel do Netlify.";
+      } else if (isQuotaExceeded) {
+        errorMessage = "Limite de uso atingido (Erro 429). No plano gratuito, o limite é baixo. Para resolver, aguarde alguns minutos ou configure uma chave de API própria no painel do Netlify.";
       } else if (isNetwork) {
         errorMessage = t.connectionError;
       }
@@ -386,13 +395,13 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
       audioContextRef.current = outCtx;
 
       const sessionPromise = ai.live.connect({
-        model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+        model: 'gemini-3.1-flash-live-preview',
         callbacks: {
           onopen: () => {
             const source = inCtx.createMediaStreamSource(stream);
             const scriptProcessor = inCtx.createScriptProcessor(4096, 1, 1);
             scriptProcessor.onaudioprocess = (e) => {
-              if (isPaused) return;
+              if (isPausedRef.current) return;
               const inputData = e.inputBuffer.getChannelData(0);
               const l = inputData.length;
               const int16 = new Int16Array(l);
@@ -408,12 +417,12 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
             setIsLive(true);
           },
           onmessage: async (message: LiveServerMessage) => {
-            if (message.serverContent?.outputTranscription) {
+            if (message.serverContent?.outputTranscription && !isPausedRef.current) {
               setTranscription(prev => prev + message.serverContent?.outputTranscription?.text);
             }
             
             const audioData = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
-            if (audioData) {
+            if (audioData && !isPausedRef.current) {
               const buf = await decodeAudioData(decode(audioData), outCtx, 24000, 1);
               nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outCtx.currentTime);
               const src = outCtx.createBufferSource();
@@ -478,14 +487,12 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
 
   const togglePauseLive = () => {
     setIsPaused(!isPaused);
-    if (!isPaused) {
-      // If we were paused and now resuming, stop any playing audio to avoid overlap/confusion
-      sourcesRef.current.forEach(s => {
-        try { s.stop(); } catch(e) {}
-      });
-      sourcesRef.current.clear();
-      nextStartTimeRef.current = 0;
-    }
+    // Stop any playing audio when pausing or resuming
+    sourcesRef.current.forEach(s => {
+      try { s.stop(); } catch(e) {}
+    });
+    sourcesRef.current.clear();
+    nextStartTimeRef.current = 0;
   };
 
   const startSpeechRecognition = () => {
@@ -790,6 +797,12 @@ export const Consultation: React.FC<ConsultationProps> = ({ patientData, onRepor
                   className="bg-amber-50 text-amber-700 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border border-amber-100 hover:bg-amber-100 transition-all flex items-center gap-2"
                 >
                   <FileSignature size={14} /> {t.generateTechnicalReport}
+                </button>
+                <button
+                  onClick={() => setView('prescriptions')}
+                  className="bg-purple-50 text-purple-700 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border border-purple-100 hover:bg-purple-100 transition-all flex items-center gap-2"
+                >
+                  <Sparkles size={14} /> {t.integratedPrescription}
                 </button>
                 <div className="flex gap-2 ml-auto pr-4">
                   <button 

@@ -35,7 +35,7 @@ const storage: StateStorage = {
   },
 };
 
-export type View = 'dashboard' | 'patient' | 'consultation' | 'exams' | 'mapping' | 'generator' | 'protocols' | 'library' | 'history' | 'settings' | 'help' | 'recycle' | 'exam_request' | 'frequency' | 'iridology' | 'hardware' | 'quantum' | 'nsofision' | 'physiotherapy' | 'massotherapy' | 'blood_pressure' | 'glucose';
+export type View = 'dashboard' | 'patient' | 'consultation' | 'exams' | 'mapping' | 'generator' | 'protocols' | 'library' | 'history' | 'settings' | 'help' | 'recycle' | 'exam_request' | 'frequency' | 'iridology' | 'hardware' | 'quantum' | 'nsofision' | 'physiotherapy' | 'massotherapy' | 'blood_pressure' | 'glucose' | 'energy_diet' | 'hydrotherapy' | 'biomagnetism_guide' | 'prescriptions' | 'bioscan';
 
 interface AppState {
   // UI State
@@ -164,6 +164,27 @@ export const useStore = create<AppState>()(
           ? state.allPatients.map(p => p.id === data.id ? data : p)
           : [...state.allPatients, data];
         
+        // Background sync to Supabase
+        syncToSupabase('patients', {
+          id: data.id,
+          name: data.name,
+          age: data.age,
+          gender: data.gender,
+          blood_type: data.bloodType,
+          weight: data.weight,
+          height: data.height,
+          bmi: data.bmi,
+          blood_pressure: data.bloodPressure,
+          address: data.address,
+          phone: data.phone,
+          history: data.history,
+          complaints: data.complaints,
+          consultation_history: data.consultationHistory,
+          anatomical_markers: data.anatomicalMarkers,
+          exam_requests: data.examRequests,
+          updated_at: new Date().toISOString()
+        });
+
         return { 
           allPatients: updatedAll,
           patientData: state.patientData?.id === data.id ? data : state.patientData
@@ -174,6 +195,8 @@ export const useStore = create<AppState>()(
         const patientToDelete = state.allPatients.find(p => p.id === id);
         if (!patientToDelete) return state;
         
+        deleteFromSupabase('patients', id);
+
         return {
           allPatients: state.allPatients.filter(p => p.id !== id),
           deletedPatients: [...state.deletedPatients, patientToDelete],
@@ -232,7 +255,33 @@ export const useStore = create<AppState>()(
       })),
 
       syncFromSupabase: async () => {
-        // Supabase sync disabled to repair app
+        const { fetchFromSupabase } = await import('../services/supabase');
+        try {
+          const patientsInDB = await fetchFromSupabase('patients');
+          if (patientsInDB && patientsInDB.length > 0) {
+            const mappedPatients = patientsInDB.map((p: any) => ({
+              id: p.id,
+              name: p.name,
+              age: p.age,
+              gender: p.gender,
+              bloodType: p.blood_type,
+              weight: p.weight,
+              height: p.height,
+              bmi: p.bmi,
+              bloodPressure: p.blood_pressure,
+              address: p.address,
+              phone: p.phone,
+              history: p.history,
+              complaints: p.complaints,
+              consultationHistory: p.consultation_history || [],
+              anatomicalMarkers: p.anatomical_markers || [],
+              examRequests: p.exam_requests || []
+            }));
+            set({ allPatients: mappedPatients });
+          }
+        } catch (err) {
+          console.error('Error restoring from Supabase:', err);
+        }
       },
 
       handleReportGenerated: (report) => {
@@ -246,7 +295,11 @@ export const useStore = create<AppState>()(
           return acc;
         }, []);
         
-        const updatedReport = { ...report, date: new Date().toISOString() };
+        const updatedReport = { 
+          ...report, 
+          id: crypto.randomUUID(), 
+          date: new Date().toISOString() 
+        };
 
         set({ 
           lastExamAnalysis: updatedReport,
@@ -256,10 +309,12 @@ export const useStore = create<AppState>()(
         if (patientData) {
           const updatedPatient = {
             ...patientData,
-            consultationHistory: [updatedReport, ...(patientData.consultationHistory || [])]
+            consultationHistory: [updatedReport, ...(patientData.consultationHistory || [])],
+            lastConsultation: updatedReport.date
           };
           savePatient(updatedPatient);
           set({ patientData: updatedPatient });
+          console.log(`Leitura de exame salva automaticamente para o paciente ${patientData.name}`);
         }
         set({ currentView: 'protocols' });
       },
@@ -275,7 +330,8 @@ export const useStore = create<AppState>()(
             `Realize uma análise clínica completa para o paciente ${data.name}. 
              Queixas: ${data.complaints}. 
              Histórico: ${data.history}. 
-             Sinais Vitais: TA ${data.bloodPressure}, Glicemia ${data.glucose || 'Não informada'}, IMC ${data.bmi}.`,
+             Sinais Vitais: TA ${data.bloodPressure}, Glicemia ${data.glucose || 'Não informada'}, IMC ${data.bmi}.
+             Gere protocolos detalhados de Biomagnetismo, Acupuntura Integrativa, Fitoterapia, DIETA ENERGÉTICA NSO e HIDROTERAPIA NSO.`,
             undefined,
             data
           );
@@ -318,7 +374,7 @@ export const useStore = create<AppState>()(
             Achados específicos: ${lastExamAnalysis.findings.join(', ')}.`;
           }
 
-          prompt += `\nForneça protocolos detalhados de Biomagnetismo, Acupuntura, Fitoterapia, Suplementação e Dieta.`;
+          prompt += `\nForneça protocolos detalhados de Biomagnetismo, Acupuntura Integrativa, Fitoterapia, Suplementação, DIETA ENERGÉTICA NSO e HIDROTERAPIA NSO.`;
 
           const report = await generateTherapyReport(prompt, undefined, patientData);
           handleReportGenerated(report);

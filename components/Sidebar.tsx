@@ -25,7 +25,10 @@ import {
   Activity,
   Wind,
   Heart,
-  Droplets
+  Droplets,
+  Waves,
+  Apple,
+  Leaf
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -55,10 +58,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'exams', label: t.exams, icon: FileText, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT] },
     { id: 'mapping', label: t.mapping, icon: MapPin, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT] },
     { id: 'exam_request', label: t.exam_request, icon: ClipboardList, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT] },
+    { id: 'prescriptions', label: t.integratedPrescription, icon: Sparkles, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT] },
+    { id: 'bioscan', label: 'BioScan Pro', icon: Leaf, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT] },
     { id: 'blood_pressure', label: 'Pressão Arterial', icon: Heart, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT, UserRole.PATIENT] },
     { id: 'glucose', label: 'Glicemia', icon: Droplets, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT, UserRole.PATIENT] },
     { id: 'physiotherapy', label: 'Fisioterapia', icon: Activity, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT, UserRole.PATIENT] },
     { id: 'massotherapy', label: 'Massoterapia', icon: Wind, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT, UserRole.PATIENT] },
+    { id: 'energy_diet', label: t.energyDiet, icon: Apple, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT, UserRole.PATIENT] },
+    { id: 'hydrotherapy', label: t.hydrotherapy, icon: Waves, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT, UserRole.PATIENT] },
+    { id: 'biomagnetism_guide', label: 'Guia Biomagnetismo', icon: Zap, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT, UserRole.PATIENT] },
     { id: 'generator', label: 'Atlas IA', icon: Sparkles, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT] },
     { id: 'frequency', label: t.frequency, icon: Music, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT] },
     { id: 'protocols', label: t.protocols, icon: ClipboardList, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT, UserRole.PATIENT] },

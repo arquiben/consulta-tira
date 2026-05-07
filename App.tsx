@@ -27,8 +27,13 @@ import { QuantumResonanceModule } from './components/QuantumResonanceModule';
 import { NsofisionNero } from './components/NsofisionNero';
 import { Physiotherapy } from './components/Physiotherapy';
 import { Massotherapy } from './components/Massotherapy';
+import { EnergyDiet } from './components/EnergyDiet';
+import { HydrotherapyNSO } from './components/HydrotherapyNSO';
+import { BiomagnetismGuide } from './components/BiomagnetismGuide';
 import { BloodPressureMonitor } from './components/BloodPressureMonitor';
 import { GlucoseMonitor } from './components/GlucoseMonitor';
+import { PrescriptionSystem } from './components/PrescriptionSystem';
+import { BioScan } from './components/BioScan';
 import { PatientData, AnalysisReport, ClinicSettings, UserRole, Protocol, LicenseType } from './types';
 import { translations } from './translations';
 
@@ -149,6 +154,9 @@ const App: React.FC = () => {
       case 'nsofision': return <NsofisionNero />;
       case 'physiotherapy': return <Physiotherapy />;
       case 'massotherapy': return <Massotherapy />;
+      case 'energy_diet': return <EnergyDiet patientData={patientData} />;
+      case 'hydrotherapy': return <HydrotherapyNSO patientData={patientData} />;
+      case 'biomagnetism_guide': return <BiomagnetismGuide patientData={patientData} />;
       case 'blood_pressure': return (
         <BloodPressureMonitor 
           onSave={(data) => {
@@ -177,6 +185,8 @@ const App: React.FC = () => {
           }} 
         />
       );
+      case 'prescriptions': return <PrescriptionSystem />;
+      case 'bioscan': return <BioScan clinicSettings={clinicSettings} />;
       case 'help': return <HelpCenter />;
       case 'recycle': return <RecycleBin deletedPatients={deletedPatients} onRestore={() => {}} onPermanentDelete={() => {}} onEmptyBin={() => {}} language={clinicSettings.language || 'pt'} />;
       default: return <Dashboard setView={setView} patientData={patientData} clinicSettings={clinicSettings} allPatients={allPatients} onSelectPatient={() => {}} onLogout={logout} userRole={currentUserRole} />;
@@ -224,7 +234,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      <BottomNav currentView={currentView} setView={setView} userRole={currentUserRole} />
+      <BottomNav currentView={currentView} setView={setView} userRole={currentUserRole} clinicSettings={clinicSettings} />
     </div>
   );
 };

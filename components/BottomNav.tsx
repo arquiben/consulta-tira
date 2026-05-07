@@ -1,25 +1,32 @@
 
 import React from 'react';
-import { LayoutDashboard, UserPlus, FileText, Sparkles, Camera, ClipboardList, Activity, Wind, Eye, Zap, Brain } from 'lucide-react';
-import { UserRole } from '../types';
+import { LayoutDashboard, UserPlus, FileText, Sparkles, Camera, ClipboardList, Activity, Wind, Eye, Zap, Brain, Apple, Waves } from 'lucide-react';
+import { UserRole, ClinicSettings } from '../types';
+import { translations } from '../translations';
 
 interface BottomNavProps {
   currentView: string;
   setView: (view: any) => void;
   userRole: UserRole | null;
+  clinicSettings: ClinicSettings;
 }
 
-export const BottomNav: React.FC<BottomNavProps> = ({ currentView, setView, userRole }) => {
+export const BottomNav: React.FC<BottomNavProps> = ({ currentView, setView, userRole, clinicSettings }) => {
+  const t = translations[clinicSettings.language || 'pt'] || translations.pt;
   const isProfessional = userRole === UserRole.DOCTOR || userRole === UserRole.THERAPIST || userRole === UserRole.STUDENT;
 
   const navItems = [
-    { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
-    { id: 'consultation', label: 'Consulta', icon: ClipboardList },
-    { id: 'patient', label: 'Novo', icon: UserPlus, hidden: !isProfessional },
-    { id: 'exams', label: 'Análise', icon: Camera, hidden: !isProfessional },
+    { id: 'dashboard', label: t.dashboard.split(' ')[0], icon: LayoutDashboard },
+    { id: 'consultation', label: t.consultation.split(' ')[0], icon: ClipboardList },
+    { id: 'patient', label: t.newPatient.split(' ')[0], icon: UserPlus, hidden: !isProfessional },
+    { id: 'exams', label: t.exams.split(' ')[0], icon: Camera, hidden: !isProfessional },
+    { id: 'prescriptions', label: 'Receita', icon: Sparkles, hidden: !isProfessional },
     { id: 'physiotherapy', label: 'Fisio', icon: Activity },
     { id: 'massotherapy', label: 'Masso', icon: Wind },
-    { id: 'history', label: 'Histórico', icon: FileText },
+    { id: 'energy_diet', label: 'Dieta', icon: Apple },
+    { id: 'hydrotherapy', label: 'Hidro', icon: Waves },
+    { id: 'biomagnetism_guide', label: 'BioMag', icon: Zap },
+    { id: 'history', label: t.clinicalHistory.split(' ')[0], icon: FileText },
   ];
 
   const visibleItems = navItems.filter(item => !item.hidden);

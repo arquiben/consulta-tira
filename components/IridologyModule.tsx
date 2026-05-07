@@ -115,7 +115,7 @@ export const IridologyModule: React.FC = () => {
       const prompt = `Realize uma análise de iridologia para o paciente ${patientData.name}. 
       Zonas marcadas com alterações: ${zonesStr || 'Nenhuma zona marcada manualmente, realize detecção automática na imagem'}.
       Baseie-se na lógica: manchas escuras (sobrecarga), fibras abertas (fragilidade), anéis circulares (tensão nervosa), pigmentação amarelada (sobrecarga hepática).
-      Gere um relatório detalhado e sugira protocolos de Fitoterapia, Reflexologia, Cromoterapia e Biomagnetismo.`;
+      Gere um relatório detalhado e sugira protocolos de Fitoterapia, Reflexologia, Cromoterapia, Biomagnetismo, DIETA ENERGÉTICA NSO e HIDROTERAPIA NSO.`;
 
       const report = await generateTherapyReport(prompt, capturedImage?.split(',')[1], patientData);
       

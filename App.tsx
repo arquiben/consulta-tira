@@ -33,7 +33,6 @@ import { BiomagnetismGuide } from './components/BiomagnetismGuide';
 import { BloodPressureMonitor } from './components/BloodPressureMonitor';
 import { GlucoseMonitor } from './components/GlucoseMonitor';
 import { PrescriptionSystem } from './components/PrescriptionSystem';
-import { BioScan } from './components/BioScan';
 import { PatientData, AnalysisReport, ClinicSettings, UserRole, Protocol, LicenseType } from './types';
 import { translations } from './translations';
 
@@ -186,7 +185,6 @@ const App: React.FC = () => {
         />
       );
       case 'prescriptions': return <PrescriptionSystem />;
-      case 'bioscan': return <BioScan clinicSettings={clinicSettings} />;
       case 'help': return <HelpCenter />;
       case 'recycle': return <RecycleBin deletedPatients={deletedPatients} onRestore={() => {}} onPermanentDelete={() => {}} onEmptyBin={() => {}} language={clinicSettings.language || 'pt'} />;
       default: return <Dashboard setView={setView} patientData={patientData} clinicSettings={clinicSettings} allPatients={allPatients} onSelectPatient={() => {}} onLogout={logout} userRole={currentUserRole} />;

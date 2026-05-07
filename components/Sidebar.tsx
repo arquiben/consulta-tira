@@ -59,7 +59,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'mapping', label: t.mapping, icon: MapPin, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT] },
     { id: 'exam_request', label: t.exam_request, icon: ClipboardList, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT] },
     { id: 'prescriptions', label: t.integratedPrescription, icon: Sparkles, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT] },
-    { id: 'bioscan', label: 'BioScan Pro', icon: Leaf, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT] },
     { id: 'blood_pressure', label: 'Pressão Arterial', icon: Heart, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT, UserRole.PATIENT] },
     { id: 'glucose', label: 'Glicemia', icon: Droplets, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT, UserRole.PATIENT] },
     { id: 'physiotherapy', label: 'Fisioterapia', icon: Activity, roles: [UserRole.DOCTOR, UserRole.THERAPIST, UserRole.STUDENT, UserRole.PATIENT] },

@@ -35,7 +35,7 @@ const storage: StateStorage = {
   },
 };
 
-export type View = 'dashboard' | 'patient' | 'consultation' | 'exams' | 'mapping' | 'generator' | 'protocols' | 'library' | 'history' | 'settings' | 'help' | 'recycle' | 'exam_request' | 'frequency' | 'iridology' | 'hardware' | 'quantum' | 'nsofision' | 'physiotherapy' | 'massotherapy' | 'blood_pressure' | 'glucose' | 'energy_diet' | 'hydrotherapy' | 'biomagnetism_guide' | 'prescriptions' | 'bioscan';
+export type View = 'dashboard' | 'patient' | 'consultation' | 'exams' | 'mapping' | 'generator' | 'protocols' | 'library' | 'history' | 'settings' | 'help' | 'recycle' | 'exam_request' | 'frequency' | 'iridology' | 'hardware' | 'quantum' | 'nsofision' | 'physiotherapy' | 'massotherapy' | 'blood_pressure' | 'glucose' | 'energy_diet' | 'hydrotherapy' | 'biomagnetism_guide' | 'prescriptions';
 
 interface AppState {
   // UI State
